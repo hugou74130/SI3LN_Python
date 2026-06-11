@@ -580,31 +580,8 @@ class Game:
                 self.mega_shot()
         
         if event.type == pygame.MOUSEBUTTONDOWN:
-<<<<<<< HEAD
-            pos = event.pos
-            
-            # On-screen touch buttons (fire / shield / mega)
-            if self.touch_fire_rect and self.touch_fire_rect.collidepoint(pos):
-                self.touch_fire_held = True
-                self.shoot_player_bullet()
-                self.touch_auto_fire_timer = pygame.time.get_ticks()
-                return  # Don't process as movement
-            if self.touch_shield_rect and self.touch_shield_rect.collidepoint(pos):
-                if self.active_bonuses["shield"]["active"]:
-                    self.activate_shield()
-                return
-            if self.touch_mega_rect and self.touch_mega_rect.collidepoint(pos):
-                if self.active_bonuses["mega_shot"]["active"]:
-                    self.mega_shot()
-                return
-            
-            # Start dragging to move
-            self.touch_move_pos = pos
-            
-=======
             pos = self.rm.screen_to_ref(*event.pos)
 
->>>>>>> 8af4e2f (Implement responsive design with ResolutionManager and update UI components)
             # Profile icon
             if self.profile_icon and self.profile_icon.is_clicked(pos):
                 self.prev_state = self.state
@@ -1345,13 +1322,8 @@ class Game:
         self.is_fullscreen = not self.is_fullscreen
 
         if self.is_fullscreen:
-<<<<<<< HEAD
-            self.screen = pygame.display.set_mode(
-                (0, 0), pygame.FULLSCREEN | pygame.SCALED | pygame.RESIZABLE
-=======
             self._display = pygame.display.set_mode(
                 (0, 0), pygame.FULLSCREEN | pygame.RESIZABLE
->>>>>>> 8af4e2f (Implement responsive design with ResolutionManager and update UI components)
             )
         else:
             self._display = pygame.display.set_mode(
