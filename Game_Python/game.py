@@ -1290,8 +1290,8 @@ class Game:
         if not self.rm:
             return
         # Fire button (bottom-right)
-        btn_size = self.rm.scale_size(80)
-        margin = self.rm.scale_size(20)
+        btn_size = int(80 * self.rm.s)
+        margin = int(20 * self.rm.s)
         self.touch_fire_rect = pygame.Rect(
             self.screen_width - btn_size - margin,
             self.screen_height - btn_size - margin,
