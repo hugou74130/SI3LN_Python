@@ -65,7 +65,9 @@ class Player(pygame.sprite.Sprite):
         # Normalize and apply speed
         dx = diff_x / dist
         dy = diff_y / dist
-        self.move(dx, dy)class Enemy(pygame.sprite.Sprite):
+        self.move(dx, dy)
+
+class Enemy(pygame.sprite.Sprite):
     """Enemy entity"""
     def __init__(self, x, y, image, screen_width, level=1):
         super().__init__()
