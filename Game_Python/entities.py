@@ -65,9 +65,7 @@ class Player(pygame.sprite.Sprite):
         # Normalize and apply speed
         dx = diff_x / dist
         dy = diff_y / dist
-        self.move(dx, dy)
-
-class Enemy(pygame.sprite.Sprite):
+        self.move(dx, dy)class Enemy(pygame.sprite.Sprite):
     """Enemy entity"""
     def __init__(self, x, y, image, screen_width, level=1):
         super().__init__()
@@ -182,6 +180,162 @@ class Explosion(pygame.sprite.Sprite):
                 old_center = self.rect.center
                 self.image = self.frames[self.current_frame]
                 self.rect = self.image.get_rect(center=old_center)
+
+
+class TargetDrone(pygame.sprite.Sprite):
+    """Harmless target drone for Boot Camp tutorial - no damage to player"""
+    def __init__(self, x, y, image=None, screen_width=None):
+        super().__init__()
+        self.screen_width = screen_width or REF_WIDTH
+        
+        # Create visual - a simple drone shape
+        if image:
+            self.image = pygame.transform.scale(image, (50, 50))
+        else:
+            self.image = pygame.Surface((50, 50), pygame.SRCALPHA)
+            # Draw drone body
+            pygame.draw.circle(self.image, DRONE_GRAY, (25, 25), 20)
+            pygame.draw.circle(self.image, HOLO_BLUE, (25, 25), 20, 2)
+            # Draw crosshair target symbol
+            pygame.draw.line(self.image, HOLO_GREEN, (10, 25), (40, 25), 2)
+            pygame.draw.line(self.image, HOLO_GREEN, (25, 10), (25, 40), 2)
+            pygame.draw.circle(self.image, HOLO_GREEN, (25, 25), 12, 1)
+        
+        self.original_image = self.image
+        self.rect = self.image.get_rect(center=(x, y))
+        
+        # Movement - slow, predictable
+        self.speed = 1.5
+        self.direction = 1
+        self.amplitude = 30  # How far it moves side to side
+        self.start_x = x
+        self.move_range = 100
+        
+        # Harmless - no shooting, no damage
+        self.harmless = True
+        self.can_shoot = False
+        
+        # Animation
+        self.float_offset = 0
+        self.float_speed = 0.05
+        self.float_timer = 0
+    
+    def update(self):
+        """Update drone position - gentle floating movement"""
+        self.float_timer += self.float_speed
+        self.float_offset = int(5 * (self.float_timer % (2 * 3.14159)))
+        
+        # Horizontal movement within range
+        self.rect.x += self.speed * self.direction
+        if abs(self.rect.centerx - self.start_x) > self.move_range:
+            self.direction *= -1
+        
+        # Gentle floating up and down
+        self.rect.y += int(2 * (self.float_timer % (2 * 3.14159)))
+
+
+class Waypoint(pygame.sprite.Sprite):
+    """Tutorial waypoint marker - player must move here"""
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((60, 60), pygame.SRCALPHA)
+        
+        # Draw pulsing ring
+        pygame.draw.circle(self.image, HOLO_BLUE, (30, 30), 25, 3)
+        pygame.draw.circle(self.image, HOLO_GREEN, (30, 30), 15, 2)
+        
+        # Draw arrow pointing up
+        pygame.draw.polygon(self.image, HOLO_GREEN, [
+            (30, 10), (20, 25), (40, 25)
+        ])
+        
+        self.rect = self.image.get_rect(center=(x, y))
+        self.pulse_timer = 0
+        self.pulse_speed = 0.08
+        self.base_scale = 1.0
+    
+    def update(self):
+        """Pulse animation"""
+        self.pulse_timer += self.pulse_speed
+        scale = self.base_scale + 0.15 * (self.pulse_timer % (2 * 3.14159))
+        
+        # Recreate image with new scale
+        new_size = int(60 * scale)
+        if new_size > 0:
+            self.image = pygame.Surface((new_size, new_size), pygame.SRCALPHA)
+            center = new_size // 2
+            pygame.draw.circle(self.image, HOLO_BLUE, (center, center), int(25 * scale), max(1, int(3 * scale)))
+            pygame.draw.circle(self.image, HOLO_GREEN, (center, center), int(15 * scale), max(1, int(2 * scale)))
+            pygame.draw.polygon(self.image, HOLO_GREEN, [
+                (center, int(10 * scale)), 
+                (int(20 * scale), int(25 * scale)), 
+                (int(40 * scale), int(25 * scale))
+            ])
+            old_center = self.rect.center
+            self.rect = self.image.get_rect(center=old_center)
+
+
+class ExitPortal(pygame.sprite.Sprite):
+    """Exit portal for tutorial completion"""
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((80, 80), pygame.SRCALPHA)
+        
+        # Draw portal - swirling vortex effect
+        pygame.draw.circle(self.image, HOLO_BLUE, (40, 40), 35, 4)
+        pygame.draw.circle(self.image, HOLO_GREEN, (40, 40), 25, 3)
+        pygame.draw.circle(self.image, WHITE, (40, 40), 15, 2)
+        
+        # Draw exit arrow
+        pygame.draw.polygon(self.image, WHITE, [
+            (40, 15), (25, 35), (55, 35)
+        ])
+        
+        self.rect = self.image.get_rect(center=(x, y))
+        self.rotation = 0
+        self.rotation_speed = 2
+        self.base_image = self.image.copy()
+    
+    def update(self):
+        """Rotate portal animation"""
+        self.rotation = (self.rotation + self.rotation_speed) % 360
+        self.image = pygame.transform.rotate(self.base_image, self.rotation)
+        old_center = self.rect.center
+        self.rect = self.image.get_rect(center=old_center)
+
+
+class TutorialObjective:
+    """Represents a single tutorial objective"""
+    def __init__(self, obj_type, target_value, description):
+        self.type = obj_type
+        self.target_value = target_value
+        self.current_value = 0
+        self.description = description
+        self.completed = False
+        self.announced = False  # Track if completion was announced
+    
+    def update(self, value):
+        """Update progress and check completion"""
+        self.current_value = value
+        if self.current_value >= self.target_value and not self.completed:
+            self.completed = True
+            return True  # Just completed
+        return False
+    
+    def get_progress_text(self):
+        """Get progress display text"""
+        if self.type == TUTORIAL_OBJ_MOVE:
+            return f"{self.description}: {min(self.current_value, self.target_value)}/{self.target_value}m"
+        elif self.type == TUTORIAL_OBJ_SHOOT:
+            return f"{self.description}: {min(self.current_value, self.target_value)}/{self.target_value}"
+        elif self.type == TUTORIAL_OBJ_COLLECT:
+            return f"{self.description}: {'✓' if self.completed else '...'}"
+        elif self.type == TUTORIAL_OBJ_SURVIVE:
+            remaining = max(0, self.target_value - self.current_value)
+            return f"{self.description}: {remaining//1000}s"
+        elif self.type == TUTORIAL_OBJ_EXIT:
+            return f"{self.description}: {'✓' if self.completed else '...'}"
+        return self.description
 
 
 class PowerUp(pygame.sprite.Sprite):

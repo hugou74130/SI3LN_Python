@@ -8,75 +8,6 @@ from ui_components import Button, Panel
 from utils import load_image
 
 
-class WorldCard:
-    """Represents a world selection card with background image"""
-    def __init__(self, x, y, width, height, world_name, world_data, bg_image):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.world_name = world_name
-        self.world_data = world_data
-        self.bg_image = bg_image
-        self.hovered = False
-        self.selected = False
-        
-        # Scale background image to card size
-        if self.bg_image:
-            self.bg_image = pygame.transform.scale(self.bg_image, (width, height))
-        
-        # Font for world name
-        self.font = pygame.font.Font(None, 40)
-        self.font_small = pygame.font.Font(None, 24)
-    
-    def draw(self, screen):
-        """Draw the world card"""
-        # Draw background image
-        if self.bg_image:
-            screen.blit(self.bg_image, self.rect)
-        else:
-            pygame.draw.rect(screen, (30, 30, 60), self.rect)
-        
-        # Draw overlay for visibility
-        overlay = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
-        if self.selected:
-            overlay.fill((0, 200, 255, 80))  # Cyan semi-transparent
-        elif self.hovered:
-            overlay.fill((255, 255, 255, 40))  # White semi-transparent
-        else:
-            overlay.fill((0, 0, 0, 60))  # Dark but still show image
-        screen.blit(overlay, self.rect)
-        
-        # Draw border
-        border_color = CYAN if self.selected else (YELLOW if self.hovered else WHITE)
-        border_width = 5 if self.selected else 3
-        pygame.draw.rect(screen, border_color, self.rect, border_width, border_radius=10)
-        
-        # Draw world name
-        name_surf = self.font.render(self.world_data["name"], True, WHITE)
-        name_rect = name_surf.get_rect(center=(self.rect.centerx, self.rect.centery))
-        
-        # Shadow for text
-        shadow_surf = self.font.render(self.world_data["name"], True, BLACK)
-        shadow_rect = shadow_surf.get_rect(center=(self.rect.centerx + 2, self.rect.centery + 2))
-        screen.blit(shadow_surf, shadow_rect)
-        screen.blit(name_surf, name_rect)
-        
-        # Draw level count
-        level_text = f"{self.world_data['levels']} niveaux"
-        level_surf = self.font_small.render(level_text, True, WHITE)
-        level_rect = level_surf.get_rect(center=(self.rect.centerx, self.rect.bottom - 30))
-        shadow_level = self.font_small.render(level_text, True, BLACK)
-        shadow_level_rect = shadow_level.get_rect(center=(self.rect.centerx + 1, self.rect.bottom - 29))
-        screen.blit(shadow_level, shadow_level_rect)
-        screen.blit(level_surf, level_rect)
-    
-    def update(self, mouse_pos):
-        """Update hover state"""
-        self.hovered = self.rect.collidepoint(mouse_pos)
-    
-    def is_clicked(self, pos):
-        """Check if card is clicked"""
-        return self.rect.collidepoint(pos)
-
-
 class LevelSelector:
     def __init__(self, screen, worlds_config):
         self.screen = screen
@@ -124,8 +55,8 @@ class LevelSelector:
         
         worlds_list = list(self.worlds.keys())
         
-        # Layout: 3 cards on top row (centered), 2 cards on bottom row (centered)
-        # Top row: 3 cards
+        # Layout: 3 cards on top row (centered), 3 cards on bottom row (centered)
+        # Top row: BootCamp + first 2 worlds
         top_row_cards = worlds_list[:3]
         total_width_top = 3 * card_width + 2 * spacing
         start_x_top = (self.screen_width - total_width_top) // 2
@@ -140,7 +71,7 @@ class LevelSelector:
                            self.world_backgrounds[world_key])
             self.world_cards.append(card)
         
-        # Bottom row: 2 cards (centered)
+        # Bottom row: remaining worlds
         if len(worlds_list) > 3:
             bottom_row_cards = worlds_list[3:]
             total_width_bottom = len(bottom_row_cards) * card_width + (len(bottom_row_cards) - 1) * spacing
@@ -210,6 +141,17 @@ class LevelSelector:
         for card in self.world_cards:
             card.selected = (card.world_name == self.selected_world)
     
+    def set_world_unlocked(self, world_name, unlocked=True):
+        """Set world unlock status"""
+        if world_name in self.world_unlocked:
+            self.world_unlocked[world_name] = unlocked
+    
+    def set_boot_camp_completed(self, completed=True):
+        """Mark Boot Camp as completed - unlocks Space world"""
+        self.boot_camp_completed = completed
+        if completed:
+            self.world_unlocked["Space"] = True
+    
     def close(self):
         """Close level selector"""
         self.active = False
@@ -226,6 +168,11 @@ class LevelSelector:
                 # World card selection
                 for card in self.world_cards:
                     if card.is_clicked(pos):
+                        # Check if world is unlocked
+                        if not self.world_unlocked.get(card.world_name, False):
+                            print(f"[DEBUG] World {card.world_name} is locked!")
+                            return ("WORLD_LOCKED", card.world_name)
+                        
                         self.selected_world = card.world_name
                         self.selected_level = 1
                         self.create_level_buttons()
@@ -319,11 +266,31 @@ class LevelSelector:
             # Draw world cards
             for card in self.world_cards:
                 card.draw(self.screen)
+                # Draw lock overlay for locked worlds
+                if not self.world_unlocked.get(card.world_name, False):
+                    lock_overlay = pygame.Surface((card.rect.width, card.rect.height), pygame.SRCALPHA)
+                    lock_overlay.fill((0, 0, 0, 150))
+                    self.screen.blit(lock_overlay, card.rect)
+                    # Draw lock icon
+                    lock_font = pygame.font.Font(None, 60)
+                    lock_text = lock_font.render("🔒", True, GRAY)
+                    lock_rect = lock_text.get_rect(center=card.rect.center)
+                    self.screen.blit(lock_text, lock_rect)
+                    # Draw lock text
+                    lock_label = self.font_small.render("VERROUILLÉ", True, GRAY)
+                    lock_label_rect = lock_label.get_rect(center=(card.rect.centerx, card.rect.centery + 40))
+                    self.screen.blit(lock_label, lock_label_rect)
             
             # Draw instruction
             instruction = pygame.font.Font(None, 24).render("Cliquez sur un monde pour continuer", True, WHITE)
             inst_rect = instruction.get_rect(center=(self.screen_width // 2, self.screen_height - 120))
             self.screen.blit(instruction, inst_rect)
+            
+            # Boot camp hint
+            if not self.boot_camp_completed:
+                hint = self.font_small.render("Complétez le Boot Camp pour débloquer les autres mondes", True, HOLO_BLUE)
+                hint_rect = hint.get_rect(center=(self.screen_width // 2, self.screen_height - 150))
+                self.screen.blit(hint, hint_rect)
         
         elif self.view == "LEVELS":
             # Draw title
@@ -365,3 +332,72 @@ class LevelSelector:
             "level": self.selected_level,
             "world_data": self.worlds[self.selected_world]
         }
+
+
+class WorldCard:
+    """Represents a world selection card with background image"""
+    def __init__(self, x, y, width, height, world_name, world_data, bg_image):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.world_name = world_name
+        self.world_data = world_data
+        self.bg_image = bg_image
+        self.hovered = False
+        self.selected = False
+        
+        # Scale background image to card size
+        if self.bg_image:
+            self.bg_image = pygame.transform.scale(self.bg_image, (width, height))
+        
+        # Font for world name
+        self.font = pygame.font.Font(None, 40)
+        self.font_small = pygame.font.Font(None, 24)
+    
+    def draw(self, screen):
+        """Draw the world card"""
+        # Draw background image
+        if self.bg_image:
+            screen.blit(self.bg_image, self.rect)
+        else:
+            pygame.draw.rect(screen, (30, 30, 60), self.rect)
+        
+        # Draw overlay for visibility
+        overlay = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+        if self.selected:
+            overlay.fill((0, 200, 255, 80))  # Cyan semi-transparent
+        elif self.hovered:
+            overlay.fill((255, 255, 255, 40))  # White semi-transparent
+        else:
+            overlay.fill((0, 0, 0, 60))  # Dark but still show image
+        screen.blit(overlay, self.rect)
+        
+        # Draw border
+        border_color = CYAN if self.selected else (YELLOW if self.hovered else WHITE)
+        border_width = 5 if self.selected else 3
+        pygame.draw.rect(screen, border_color, self.rect, border_width, border_radius=10)
+        
+        # Draw world name
+        name_surf = self.font.render(self.world_data["name"], True, WHITE)
+        name_rect = name_surf.get_rect(center=(self.rect.centerx, self.rect.centery))
+        
+        # Shadow for text
+        shadow_surf = self.font.render(self.world_data["name"], True, BLACK)
+        shadow_rect = shadow_surf.get_rect(center=(self.rect.centerx + 2, self.rect.centery + 2))
+        screen.blit(shadow_surf, shadow_rect)
+        screen.blit(name_surf, name_rect)
+        
+        # Draw level count
+        level_text = f"{self.world_data['levels']} niveaux"
+        level_surf = self.font_small.render(level_text, True, WHITE)
+        level_rect = level_surf.get_rect(center=(self.rect.centerx, self.rect.bottom - 30))
+        shadow_level = self.font_small.render(level_text, True, BLACK)
+        shadow_level_rect = shadow_level.get_rect(center=(self.rect.centerx + 1, self.rect.bottom - 29))
+        screen.blit(shadow_level, shadow_level_rect)
+        screen.blit(level_surf, level_rect)
+    
+    def update(self, mouse_pos):
+        """Update hover state"""
+        self.hovered = self.rect.collidepoint(mouse_pos)
+    
+    def is_clicked(self, pos):
+        """Check if card is clicked"""
+        return self.rect.collidepoint(pos)

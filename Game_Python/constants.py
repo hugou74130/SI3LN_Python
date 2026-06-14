@@ -42,6 +42,12 @@ SAND_COLOR = (210, 180, 140)
 BROWN = (139, 69, 19)
 DARK_BROWN = (101, 67, 33)
 
+# Boot Camp colors
+STERILE_WHITE = (240, 245, 250)
+HOLO_BLUE = (0, 220, 255)
+HOLO_GREEN = (50, 255, 150)
+DRONE_GRAY = (180, 190, 200)
+
 # Game settings
 MAX_LIVES = 5
 MAX_PLAYER_BULLETS = 3
@@ -52,6 +58,19 @@ ENEMY_BULLET_SPEED = 5
 
 # Worlds configuration
 WORLDS = {
+    "BootCamp": {
+        "name": "Boot Camp",
+        "subtitle": "Orbital Training Station",
+        "background": "background_bootcamp.jpg",
+        "levels": 1,
+        "enemies_dir": "BootCamp_world",
+        "enemy_count": 10,
+        "is_tutorial": True,
+        "bullet_colors": {
+            "player": [(0, 220, 255), (150, 240, 255)],      # Holographic blue
+            "enemy": [(180, 190, 200), (200, 210, 220)]      # Drone gray (harmless)
+        }
+    },
     "Space": {
         "name": "Space World",
         "background": "background_space.jpg",
@@ -116,10 +135,26 @@ STATE_REGISTER = "REGISTER"
 STATE_PLAYER_SELECT = "PLAYER_SELECT"
 STATE_LEVEL_SELECT = "LEVEL_SELECT"
 STATE_GAMEPLAY = "GAMEPLAY"
+STATE_TUTORIAL = "TUTORIAL"
 STATE_LEVEL_WIN = "LEVEL_WIN"
 STATE_GAME_OVER = "GAME_OVER"
 STATE_PROFILE = "PROFILE"
 STATE_HELP = "HELP"
+STATE_TUTORIAL_COMPLETE = "TUTORIAL_COMPLETE"
+STATE_TUTORIAL_PAUSE = "TUTORIAL_PAUSE"
+
+# Tutorial objective types
+TUTORIAL_OBJ_MOVE = "MOVE"
+TUTORIAL_OBJ_SHOOT = "SHOOT"
+TUTORIAL_OBJ_COLLECT = "COLLECT"
+TUTORIAL_OBJ_SURVIVE = "SURVIVE"
+TUTORIAL_OBJ_EXIT = "EXIT"
+
+# Tutorial settings
+TUTORIAL_SURVIVE_TIME = 30000  # 30 seconds in ms
+TUTORIAL_DRONE_COUNT = 10
+TUTORIAL_MOVE_DISTANCE = 200   # pixels to move for waypoint objective
+TUTORIAL_NO_DEATH_PENALTY = True
 
 # File paths
 USER_DATA_FILE = os.path.join(DATA_DIR, "users.json")
@@ -144,6 +179,7 @@ API_TOKEN = _os.environ.get("SI3LN_TOKEN", "")
 
 # World-name to World-ID mapping (must match the DB World records)
 WORLD_IDS = {
+    "BootCamp":    0,
     "Space":       1,
     "Desert":      2,
     "Forest":      3,

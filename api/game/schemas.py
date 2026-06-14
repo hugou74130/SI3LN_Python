@@ -12,6 +12,7 @@ class PlayerSchema(Schema):
     total_score: int
     games_played: int
     highest_level: int
+    boot_camp_completed: bool = False
     created_at: datetime
 
 
@@ -29,6 +30,8 @@ class GameSessionSchema(Schema):
     enemies_killed: int
     duration_seconds: int
     completed: bool
+    is_tutorial: bool = False
+    tutorial_objectives_completed: int = 0
     started_at: datetime
     ended_at: Optional[datetime] = None
 
@@ -44,6 +47,8 @@ class GameSessionUpdateSchema(Schema):
     enemies_killed: Optional[int] = None
     duration_seconds: Optional[int] = None
     completed: Optional[bool] = None
+    is_tutorial: Optional[bool] = None
+    tutorial_objectives_completed: Optional[int] = None
     ended_at: Optional[datetime] = None
 
 
@@ -115,6 +120,7 @@ class EnhancedProfileSchema(Schema):
     total_score: int
     games_played: int
     highest_level: int
+    boot_camp_completed: bool = False
     avatar_url: Optional[str] = None
     bio: Optional[str] = ""
     bg_color: Optional[str] = "#000000"
@@ -140,7 +146,30 @@ class ProfileUpdateSchema(Schema):
         return v
 
 
-# Password Change Schema
+# Tutorial/Boot Camp Schemas
+class BootCampStatusSchema(Schema):
+    boot_camp_completed: bool
+    graduate_badge: bool = False
+    worlds_unlocked: list = []
+
+class BootCampCompleteSchema(Schema):
+    message: str
+    graduate_badge: bool = True
+    space_unlocked: bool = True
+
+class TutorialProgressSchema(Schema):
+    objectives_completed: int
+    total_objectives: int = 5
+    current_objective: Optional[str] = None
+    completed: bool = False
+
+class TutorialObjectiveSchema(Schema):
+    obj_type: str
+    description: str
+    target_value: int
+    current_value: int = 0
+    completed: bool = False
+
 class ChangePasswordSchema(Schema):
     old_password: str
     new_password: str

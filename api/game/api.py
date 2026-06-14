@@ -15,6 +15,9 @@ from .schemas import (
     PlayerAchievementSchema,
     EnhancedProfileSchema,
     ProfileUpdateSchema,
+    BootCampStatusSchema,
+    BootCampCompleteSchema,
+    TutorialProgressSchema,
 )
 from .auth.auth_decorators import jwt_auth
 
@@ -461,3 +464,135 @@ def upload_avatar(request):
     
     avatar_url = request.build_absolute_uri(player.avatar.url)
     return {"message": "Avatar uploaded successfully", "avatar_url": avatar_url}
+
+
+# ── Boot Camp / Tutorial endpoints ─────────────────────────────────────
+
+@router.get("/bootcamp/status", response=BootCampStatusSchema, tags=["Boot Camp"], auth=jwt_auth)
+def get_bootcamp_status(request):
+    """Get Boot Camp completion status for current user"""
+    from .models import Player, PlayerAchievement
+    
+    user = request.auth
+    player = get_object_or_404(Player, user=user)
+    
+    # Check for Graduate achievement
+    has_graduate_badge = PlayerAchievement.objects.filter(
+        player=player,
+        achievement__name="Boot Camp Graduate"
+    ).exists()
+    
+    # Determine unlocked worlds
+    worlds_unlocked = ["BootCamp"]
+    if player.boot_camp_completed:
+        worlds_unlocked.append("Space")
+    
+    return {
+        "boot_camp_completed": player.boot_camp_completed,
+        "graduate_badge": has_graduate_badge,
+        "worlds_unlocked": worlds_unlocked,
+    }
+
+
+@router.post("/bootcamp/complete", response=BootCampCompleteSchema, tags=["Boot Camp"], auth=jwt_auth)
+def complete_bootcamp(request):
+    """Mark Boot Camp as completed - unlocks Space world and awards Graduate badge"""
+    from .models import Player, Achievement, PlayerAchievement
+    
+    user = request.auth
+    player = get_object_or_404(Player, user=user)
+    
+    # Mark Boot Camp as completed
+    player.boot_camp_completed = True
+    player.save()
+    
+    # Create or get the Graduate achievement
+    graduate_achievement, created = Achievement.objects.get_or_create(
+        name="Boot Camp Graduate",
+        defaults={
+            "description": "Complete the Boot Camp tutorial to begin your journey",
+            "icon": "🎓",
+            "points": 50,
+            "rarity": "COMMON",
+            "achievement_type": "GRADUATE",
+            "requirement_type": "bootcamp_complete",
+            "requirement_value": 1,
+        }
+    )
+    
+    # Award the achievement if not already earned
+    player_achievement, pa_created = PlayerAchievement.objects.get_or_create(
+        player=player,
+        achievement=graduate_achievement,
+    )
+    
+    return {
+        "message": "Boot Camp completed! Space world unlocked.",
+        "graduate_badge": True,
+        "space_unlocked": True,
+    }
+
+
+@router.get("/bootcamp/progress", response=TutorialProgressSchema, tags=["Boot Camp"], auth=jwt_auth)
+def get_tutorial_progress(request):
+    """Get current tutorial progress for the user"""
+    from .models import Player, GameSession
+    
+    user = request.auth
+    player = get_object_or_404(Player, user=user)
+    
+    # Get the most recent tutorial session
+    latest_tutorial = GameSession.objects.filter(
+        player=player,
+        is_tutorial=True
+    ).order_by('-started_at').first()
+    
+    if latest_tutorial:
+        return {
+            "objectives_completed": latest_tutorial.tutorial_objectives_completed,
+            "total_objectives": 5,
+            "current_objective": None,
+            "completed": latest_tutorial.completed,
+        }
+    
+    return {
+        "objectives_completed": 0,
+        "total_objectives": 5,
+        "current_objective": None,
+        "completed": False,
+    }
+
+
+@router.post("/bootcamp/progress", response=TutorialProgressSchema, tags=["Boot Camp"], auth=jwt_auth)
+def update_tutorial_progress(request, objectives_completed: int):
+    """Update tutorial progress - called during gameplay"""
+    from .models import Player, GameSession
+    
+    user = request.auth
+    player = get_object_or_404(Player, user=user)
+    
+    # Get or create the tutorial session
+    session, created = GameSession.objects.get_or_create(
+        player=player,
+        is_tutorial=True,
+        completed=False,
+        defaults={
+            "score": 0,
+            "level_reached": 1,
+            "enemies_killed": 0,
+            "duration_seconds": 0,
+        }
+    )
+    
+    session.tutorial_objectives_completed = objectives_completed
+    if objectives_completed >= 5:
+        session.completed = True
+        session.ended_at = timezone.now()
+    session.save()
+    
+    return {
+        "objectives_completed": session.tutorial_objectives_completed,
+        "total_objectives": 5,
+        "current_objective": None,
+        "completed": session.completed,
+    }

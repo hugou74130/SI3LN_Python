@@ -15,6 +15,7 @@ class Player(models.Model):
     bio = models.TextField(max_length=500, blank=True, default='')
     bg_color = models.CharField(max_length=7, default='#000000')  # Hex color
     show_scores = models.BooleanField(default=True)
+    boot_camp_completed = models.BooleanField(default=False)  # Boot Camp tutorial completion
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -55,6 +56,8 @@ class GameSession(models.Model):
     accuracy = models.FloatField(default=0.0, validators=[MinValueValidator(0), MaxValueValidator(100)])
     duration_seconds = models.IntegerField(default=0)  # Game duration in seconds
     completed = models.BooleanField(default=False)
+    is_tutorial = models.BooleanField(default=False)  # Boot Camp tutorial session
+    tutorial_objectives_completed = models.IntegerField(default=0)  # Number of tutorial objectives done
     started_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
@@ -107,11 +110,20 @@ class Achievement(models.Model):
         ('LEGENDARY', 'Legendary'),
     ]
     
+    ACHIEVEMENT_TYPES = [
+        ('GRADUATE', 'Boot Camp Graduate'),
+        ('SCORE', 'Score Milestone'),
+        ('LEVEL', 'Level Milestone'),
+        ('ENEMIES', 'Enemies Killed'),
+        ('WORLD', 'World Complete'),
+    ]
+    
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField()
     icon = models.CharField(max_length=50, blank=True)  # Icon identifier
     points = models.IntegerField(default=10)
     rarity = models.CharField(max_length=20, choices=RARITY_CHOICES, default='COMMON')
+    achievement_type = models.CharField(max_length=20, choices=ACHIEVEMENT_TYPES, default='SCORE')
     requirement_type = models.CharField(max_length=50)  # e.g., 'score', 'level', 'enemies_killed'
     requirement_value = models.IntegerField(default=0)
     
