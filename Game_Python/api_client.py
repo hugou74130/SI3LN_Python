@@ -247,6 +247,22 @@ class APIClient:
             return None
         return self._get(f"/api/game/players/{self._player_id}")
 
+    def unlock_character(self, character_idx: int) -> dict | None:
+        """Unlock a character via the API. Returns response or None."""
+        if not self.is_authenticated():
+            return None
+        return self._post(f"/api/game/players/{self._player_id}/unlock-character", {
+            "character_idx": character_idx,
+        })
+
+    def grant_achievement(self, achievement_name: str) -> dict | None:
+        """Grant an achievement via the API. Returns response or None."""
+        if not self.is_authenticated():
+            return None
+        return self._post(f"/api/game/players/{self._player_id}/grant-achievement", {
+            "achievement_name": achievement_name,
+        })
+
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 api_client = APIClient()

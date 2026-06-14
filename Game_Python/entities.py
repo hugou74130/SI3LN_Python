@@ -7,8 +7,8 @@ from constants import *
 
 
 class Player(pygame.sprite.Sprite):
-    """Player entity"""
-    def __init__(self, x, y, image, screen_width, screen_height):
+    """Player entity with Phase Dash ability support"""
+    def __init__(self, x, y, image, screen_width, screen_height, character_idx=0):
         super().__init__()
         self.image = image
         self.original_image = image
@@ -16,17 +16,38 @@ class Player(pygame.sprite.Sprite):
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.speed = PLAYER_SPEED
+        self.character_idx = character_idx
         
         # Play area boundaries (keep player in visible area)
         self.min_x = 0
         self.max_x = screen_width
         self.min_y = screen_height // 2  # Can't go above middle
         self.max_y = screen_height - 20
+        
+        # ── Phase Dash ability (Phantom Striker - character 7) ───────────
+        self.is_phantom = (character_idx == 7)
+        self.phase_dash = {
+            "active": False,
+            "cooldown": False,
+            "dash_start_time": 0,
+            "cooldown_start_time": 0,
+            "dash_duration_ms": 500,   # 0.5s invincibility
+            "cooldown_ms": 8000,       # 8s cooldown
+            "speed_multiplier": 2.5,   # 2.5x speed during dash
+            "invincible": False,
+        }
+        # Ghost trail effect for Phase Dash
+        self.ghost_trail = []  # List of (image_copy, rect_copy, alpha)
     
     def move(self, dx, dy):
         """Move player with boundary checking"""
-        self.rect.x += dx * self.speed
-        self.rect.y += dy * self.speed
+        # Apply speed multiplier during Phase Dash
+        speed = self.speed
+        if self.is_phantom and self.phase_dash["active"]:
+            speed = int(self.speed * self.phase_dash["speed_multiplier"])
+        
+        self.rect.x += dx * speed
+        self.rect.y += dy * speed
         
         # Keep within boundaries
         self.rect.x = max(self.min_x, min(self.rect.x, self.max_x - self.rect.width))
@@ -46,12 +67,98 @@ class Player(pygame.sprite.Sprite):
         if keys[pygame.K_DOWN] or keys[pygame.K_s]:
             dy = 1
         
+        # Phase Dash activation (Phantom Striker only)
+        if self.is_phantom and (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]):
+            self.trigger_phase_dash()
+        
+        # Update Phase Dash state
+        self._update_phase_dash()
+        
         if dx != 0 or dy != 0:
             # Normalize diagonal movement
             if dx != 0 and dy != 0:
                 dx *= 0.707
                 dy *= 0.707
             self.move(dx, dy)
+            
+            # Update ghost trail during dash
+            if self.is_phantom and self.phase_dash["active"]:
+                self._update_ghost_trail()
+
+    def trigger_phase_dash(self):
+        """Activate Phase Dash if not on cooldown"""
+        if not self.phase_dash["active"] and not self.phase_dash["cooldown"]:
+            self.phase_dash["active"] = True
+            self.phase_dash["invincible"] = True
+            self.phase_dash["dash_start_time"] = pygame.time.get_ticks()
+            # Visual effect: make player semi-transparent
+            self._set_transparency(180)
+    
+    def _update_phase_dash(self):
+        """Update Phase Dash timers and state"""
+        if not self.is_phantom:
+            return
+        
+        current_time = pygame.time.get_ticks()
+        
+        # Check if dash duration expired
+        if self.phase_dash["active"]:
+            elapsed = current_time - self.phase_dash["dash_start_time"]
+            if elapsed >= self.phase_dash["dash_duration_ms"]:
+                # End dash, start cooldown
+                self.phase_dash["active"] = False
+                self.phase_dash["invincible"] = False
+                self.phase_dash["cooldown"] = True
+                self.phase_dash["cooldown_start_time"] = current_time
+                # Restore normal opacity
+                self._set_transparency(255)
+                # Clear ghost trail
+                self.ghost_trail.clear()
+        
+        # Check if cooldown expired
+        if self.phase_dash["cooldown"]:
+            elapsed = current_time - self.phase_dash["cooldown_start_time"]
+            if elapsed >= self.phase_dash["cooldown_ms"]:
+                self.phase_dash["cooldown"] = False
+    
+    def _set_transparency(self, alpha):
+        """Set player image transparency"""
+        if self.original_image:
+            self.image = self.original_image.copy()
+            self.image.set_alpha(alpha)
+    
+    def _update_ghost_trail(self):
+        """Update ghost trail effect during Phase Dash"""
+        # Add current position to trail
+        ghost = {
+            "rect": self.rect.copy(),
+            "alpha": 150,
+        }
+        self.ghost_trail.insert(0, ghost)
+        
+        # Fade out old trail entries
+        for ghost in self.ghost_trail:
+            ghost["alpha"] -= 20
+        
+        # Remove fully faded entries
+        self.ghost_trail = [g for g in self.ghost_trail if g["alpha"] > 0]
+        
+        # Limit trail length
+        if len(self.ghost_trail) > 5:
+            self.ghost_trail = self.ghost_trail[:5]
+    
+    def get_phase_dash_cooldown_ratio(self):
+        """Return cooldown progress as 0.0 (ready) to 1.0 (full cooldown)"""
+        if not self.is_phantom:
+            return 0.0
+        if self.phase_dash["cooldown"]:
+            elapsed = pygame.time.get_ticks() - self.phase_dash["cooldown_start_time"]
+            return min(1.0, elapsed / self.phase_dash["cooldown_ms"])
+        return 0.0
+    
+    def is_invincible(self):
+        """Check if player is currently invincible (Phase Dash)"""
+        return self.is_phantom and self.phase_dash["invincible"]
 
     def move_toward(self, target_x, target_y):
         """Move player toward a target point (used by touch controls).
