@@ -180,3 +180,91 @@ class AccountUpdateSchema(Schema):
     email: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+
+
+# ── Leaderboard v2 Schemas ────────────────────────────────────────────
+
+class LeaderboardEntryDetailSchema(Schema):
+    """Full leaderboard entry response"""
+    id: str
+    player_id: int
+    player_name: str
+    score: int
+    world_id: Optional[int] = None
+    level_id: int
+    character_used: str
+    duration_sec: int
+    accuracy_pct: float
+    enemies_killed: int
+    powerups_used: int
+    created_at: datetime
+    is_pb: bool
+    verified: bool
+
+
+class LeaderboardRankSchema(Schema):
+    """Materialized view rank entry"""
+    rank: int
+    player_id: int
+    player_name: str
+    best_score: int
+    total_runs: int
+    avg_score: float
+    last_played: Optional[datetime] = None
+
+
+class LeaderboardSubmitSchema(Schema):
+    """Request body for submitting a new run"""
+    score: int = Field(..., ge=0, description="Final score for the run")
+    world_id: int = Field(..., ge=1, description="World ID played")
+    level_id: int = Field(..., ge=1, description="Level reached")
+    character_used: str = Field(default="", max_length=32)
+    duration_sec: int = Field(default=0, ge=0)
+    accuracy_pct: float = Field(default=0.0, ge=0, le=100)
+    enemies_killed: int = Field(default=0, ge=0)
+    powerups_used: int = Field(default=0, ge=0)
+    bullets_fired: int = Field(default=0, ge=0)
+    replay_hash: str = Field(default="", max_length=64, description="Deterministic hash of inputs")
+    session_id: Optional[int] = Field(default=None, description="Optional linked GameSession ID")
+
+    @field_validator('score')
+    @classmethod
+    def validate_score(cls, v):
+        if v > 9_999_999:
+            raise ValueError('Score exceeds maximum possible value')
+        return v
+
+
+class LeaderboardGlobalResponseSchema(Schema):
+    """Response for global leaderboard query"""
+    entries: list[LeaderboardEntryDetailSchema]
+    total: int
+    world_id: Optional[int] = None
+
+
+class LeaderboardPlayerHistorySchema(Schema):
+    """Response for player history + PBs"""
+    player_id: int
+    player_name: str
+    personal_bests: list[LeaderboardEntryDetailSchema]
+    recent_runs: list[LeaderboardEntryDetailSchema]
+    total_runs: int
+    avg_score: float
+    best_score: int
+
+
+class LeaderboardNearbySchema(Schema):
+    """Response for nearby ranks"""
+    target_player_id: int
+    target_rank: int
+    entries: list[LeaderboardRankSchema]
+
+
+class LeaderboardSubmitResponseSchema(Schema):
+    """Response after score submission"""
+    success: bool
+    entry_id: Optional[str] = None
+    is_pb: bool = False
+    new_rank: Optional[int] = None
+    message: str
+    flagged: bool = False

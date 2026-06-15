@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
+import uuid
 
 
 class Player(models.Model):
@@ -76,8 +77,91 @@ class GameSession(models.Model):
         return self.accuracy
 
 
+class LeaderboardEntry(models.Model):
+    """Persistent leaderboard entry with full historical tracking"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='leaderboard_entries_v2')
+    player_name = models.CharField(max_length=32, db_index=True, help_text="Denormalized for speed")
+    score = models.IntegerField(default=0, db_index=True)
+    world = models.ForeignKey(World, on_delete=models.SET_NULL, null=True, blank=True)
+    level_id = models.IntegerField(default=1, validators=[MinValueValidator(1)])
+    character_used = models.CharField(max_length=32, default='')
+    duration_sec = models.IntegerField(default=0)
+    accuracy_pct = models.DecimalField(max_digits=5, decimal_places=2, default=0.00,
+                                       validators=[MinValueValidator(0), MaxValueValidator(100)])
+    enemies_killed = models.IntegerField(default=0)
+    powerups_used = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    is_pb = models.BooleanField(default=False, help_text="True if this run is a personal best")
+    replay_hash = models.CharField(max_length=64, blank=True, default='',
+                                   help_text="Deterministic hash of inputs for anti-cheat verification")
+    verified = models.BooleanField(default=False, help_text="True if replay hash verified")
+    flagged = models.BooleanField(default=False, help_text="True if score flagged for manual review")
+
+    class Meta:
+        ordering = ['-score', 'created_at']
+        indexes = [
+            models.Index(fields=['player', '-score']),
+            models.Index(fields=['world', '-score']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"#{self.score} - {self.player_name} ({self.world.name if self.world else 'Any'})"
+
+    def save(self, *args, **kwargs):
+        """Auto-update player_name from player on creation"""
+        if not self.player_name and self.player_id:
+            self.player_name = self.player.username
+        # Check if this is a personal best
+        if not self._state.adding:
+            # Only check PB on creation
+            pass
+        super().save(*args, **kwargs)
+        if self._state.adding:
+            self._update_pb_status()
+
+    def _update_pb_status(self):
+        """Mark this entry as PB if it's the player's highest score for this world/level"""
+        from django.db.models import Max
+        best = LeaderboardEntry.objects.filter(
+            player=self.player,
+            world=self.world,
+            level_id=self.level_id
+        ).aggregate(best=Max('score'))['best']
+        if best is not None and self.score >= best:
+            # Unmark previous PBs for this combo
+            LeaderboardEntry.objects.filter(
+                player=self.player,
+                world=self.world,
+                level_id=self.level_id,
+                is_pb=True
+            ).exclude(pk=self.pk).update(is_pb=False)
+            self.is_pb = True
+            LeaderboardEntry.objects.filter(pk=self.pk).update(is_pb=True)
+
+
+class LeaderboardRank(models.Model):
+    """Materialized view for leaderboard rankings (refreshed periodically)"""
+    rank = models.IntegerField(primary_key=True)
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='leaderboard_rank')
+    player_name = models.CharField(max_length=32, db_index=True)
+    best_score = models.IntegerField(default=0)
+    total_runs = models.IntegerField(default=0)
+    avg_score = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    last_played = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = False  # Django won't create migrations for this; we use raw SQL
+        db_table = 'leaderboard_ranks'
+        ordering = ['rank']
+
+    def __str__(self):
+        return f"#{self.rank} - {self.player_name} (Best: {self.best_score})"
+
+
 class Leaderboard(models.Model):
-    """Leaderboard entry model"""
+    """Legacy leaderboard entry model (kept for backward compatibility)"""
     PERIOD_CHOICES = [
         ('DAILY', 'Daily'),
         ('WEEKLY', 'Weekly'),
@@ -85,7 +169,7 @@ class Leaderboard(models.Model):
         ('ALL_TIME', 'All Time'),
     ]
     
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='leaderboard_entries')
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='leaderboard_entries_legacy')
     period = models.CharField(max_length=10, choices=PERIOD_CHOICES)
     score = models.IntegerField(default=0)
     rank = models.IntegerField(default=0)
@@ -164,3 +248,23 @@ class PowerUp(models.Model):
     
     def __str__(self):
         return self.get_name_display()
+
+
+class ScoreSubmissionLog(models.Model):
+    """Rate-limiting log for anti-cheat"""
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='submission_logs')
+    submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ip_hash = models.CharField(max_length=64, blank=True, default='',
+                               help_text="Hashed IP for additional rate-limiting")
+    score = models.IntegerField(default=0)
+    accepted = models.BooleanField(default=True)
+    rejection_reason = models.CharField(max_length=100, blank=True, default='')
+
+    class Meta:
+        ordering = ['-submitted_at']
+        indexes = [
+            models.Index(fields=['player', '-submitted_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.player.username} @ {self.submitted_at} - {'OK' if self.accepted else 'REJECTED'}"

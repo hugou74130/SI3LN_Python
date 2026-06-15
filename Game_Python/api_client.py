@@ -175,8 +175,65 @@ class APIClient:
         self._session_id = None
         return result
 
+    def submit_leaderboard(
+        self,
+        score: int = 0,
+        world_id: int = 1,
+        level_id: int = 1,
+        character_used: str = "",
+        duration_sec: int = 0,
+        accuracy_pct: float = 0.0,
+        enemies_killed: int = 0,
+        powerups_used: int = 0,
+        bullets_fired: int = 0,
+        replay_hash: str = "",
+    ) -> dict | None:
+        """Submit a completed run to the persistent leaderboard. Returns server response or None."""
+        if not self.is_authenticated():
+            return None
+        payload = {
+            "score": score,
+            "world_id": world_id,
+            "level_id": level_id,
+            "character_used": character_used,
+            "duration_sec": duration_sec,
+            "accuracy_pct": accuracy_pct,
+            "enemies_killed": enemies_killed,
+            "powerups_used": powerups_used,
+            "bullets_fired": bullets_fired,
+            "replay_hash": replay_hash,
+        }
+        # Link to the current session if one was started
+        if self._session_id is not None:
+            payload["session_id"] = self._session_id
+        return self._post("/api/game/leaderboard/submit", payload)
+
+    def get_leaderboard_global(self, world: int | None = None, limit: int = 50) -> list:
+        """Return top global scores from persistent leaderboard."""
+        params = f"limit={limit}"
+        if world is not None:
+            params += f"&world={world}"
+        result = self._get(f"/api/game/leaderboard/global?{params}")
+        if isinstance(result, dict) and "entries" in result:
+            return result["entries"]
+        return []
+
+    def get_leaderboard_player(self, player_id: int | None = None) -> dict | None:
+        """Return a player's full history + personal bests."""
+        pid = player_id or self._player_id
+        if pid is None:
+            return None
+        return self._get(f"/api/game/leaderboard/player/{pid}")
+
+    def get_leaderboard_nearby(self, player_id: int | None = None, radius: int = 5) -> dict | None:
+        """Return players ranked near the target player."""
+        pid = player_id or self._player_id
+        if pid is None:
+            return None
+        return self._get(f"/api/game/leaderboard/nearby?player={pid}&radius={radius}")
+
     def get_leaderboard(self, limit: int = 10) -> list:
-        """Return list of top scores. Falls back to empty list on error."""
+        """Return list of top scores (legacy endpoint). Falls back to empty list on error."""
         result = self._get(f"/api/game/leaderboard?limit={limit}")
         if isinstance(result, list):
             return result
