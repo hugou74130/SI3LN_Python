@@ -59,6 +59,7 @@ class AuthSystem:
             "email": email,
             "selected_character": 0,
             "high_score": 0,
+            "boot_camp_completed": False,
             "levels_completed": {}
         }
         self.save_users()
@@ -100,8 +101,7 @@ class AuthSystem:
         self.ensure_user_entry(self.current_user)
         
         for key, value in kwargs.items():
-            if key in self.users[self.current_user]:
-                self.users[self.current_user][key] = value
+            self.users[self.current_user][key] = value
         
         self.save_users()
         return True
@@ -114,6 +114,7 @@ class AuthSystem:
                 "email": "",
                 "selected_character": 0,
                 "high_score": 0,
+                "boot_camp_completed": False,
                 "levels_completed": {}
             }
             self.save_users()
