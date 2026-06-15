@@ -462,6 +462,7 @@ class SpecialAttack(pygame.sprite.Sprite):
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.duration = min(2000 + (level * 200), 4000)  # 4s
+        self.damage = 1 + (level // 3)  # Damage dealt on player contact
         
         if world == "Space":
             # Laser

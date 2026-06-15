@@ -1554,11 +1554,10 @@ class Game:
         if self.player and not self.player.is_invincible():
             for attack in self.special_attacks:
                 if pygame.sprite.collide_rect(self.player, attack):
-                    if attack.world == "Space":
-                        self.lives -= attack.damage
-                        attack.kill()
-                        if self.lives <= 0:
-                            self.trigger_game_over()
+                    self.lives -= attack.damage
+                    attack.kill()
+                    if self.lives <= 0:
+                        self.trigger_game_over()
     
     def draw(self):
         """Draw everything"""
