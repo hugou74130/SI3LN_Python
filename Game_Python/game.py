@@ -13,7 +13,7 @@ from auth import AuthSystem
 from scores import ScoreManager
 from profile import ProfileScreen
 from level_selector import LevelSelector
-from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack, TargetDrone, Waypoint, ExitPortal
+from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack, Waypoint, ExitPortal
 from ui_components import Button, InputField, ProfileIcon, Panel, PopUp
 from api_client import api_client  # REST-API integration (scores / sessions)
 
@@ -907,17 +907,31 @@ class Game:
         self.tutorial_waypoint = Waypoint(250, self.screen_height // 2)
         self.tutorial_sprites.add(self.tutorial_waypoint)
         
-        # Spawn target drones at top
+        # Spawn harmless target drones at top (standard Enemy in tutorial mode)
         drone_y = 100
         spacing = (self.screen_width - 300) // max(TUTORIAL_DRONE_COUNT - 1, 1)
+        enemy_img = self.enemy_images.get("BootCamp")
+        if not enemy_img:
+            # Fallback to Space enemy if Boot Camp assets are missing
+            enemy_img = self.enemy_images.get("Space", [])
+        if enemy_img:
+            enemy_img = enemy_img[0]
+        else:
+            # Last-resort fallback surface
+            enemy_img = pygame.Surface((50, 50), pygame.SRCALPHA)
+            pygame.draw.circle(enemy_img, HOLO_BLUE, (25, 25), 20, 3)
+            pygame.draw.line(enemy_img, HOLO_GREEN, (10, 25), (40, 25), 2)
+            pygame.draw.line(enemy_img, HOLO_GREEN, (25, 10), (25, 40), 2)
         for i in range(TUTORIAL_DRONE_COUNT):
             x = 150 + i * spacing
             y = drone_y + (i % 2) * 60
-            drone = TargetDrone(x, y, image=None, screen_width=self.screen_width)
+            drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
+                          harmless=True, can_shoot=False, behavior="patrol")
             self.tutorial_sprites.add(drone)
         
-        # Spawn power-up
+        # Spawn power-up (stationary for tutorial)
         self.tutorial_powerup = Bonus(self.screen_width // 2, 200, "shield")
+        self.tutorial_powerup.speed = 0
         self.tutorial_sprites.add(self.tutorial_powerup)
         
         self.show_message("OBJECTIF: Deplacez-vous vers le point lumineux!", HOLO_BLUE, 300)
@@ -982,6 +996,8 @@ class Game:
                 dy = self.player.rect.centery - self.tutorial_waypoint.rect.centery
                 dist = (dx * dx + dy * dy) ** 0.5
                 if dist < 50:
+                    self.tutorial_waypoint.kill()
+                    self.tutorial_waypoint = None
                     self._advance_tutorial_objective(
                         "OBJECTIF: Tirez sur les drones!", HOLO_GREEN)
         
@@ -990,7 +1006,7 @@ class Game:
             for bullet in self.player_bullets:
                 hits = pygame.sprite.spritecollide(bullet, self.tutorial_sprites, False)
                 for sprite in hits:
-                    if isinstance(sprite, TargetDrone):
+                    if isinstance(sprite, Enemy) and sprite.harmless:
                         sprite.kill()
                         bullet.kill()
                         self.tutorial_drones_killed += 1

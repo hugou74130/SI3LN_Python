@@ -3,6 +3,7 @@ Game entities: Player, Enemy, Bullet
 """
 import pygame
 import random
+import math
 from constants import *
 
 
@@ -70,15 +71,22 @@ class Player(pygame.sprite.Sprite):
 
 class Enemy(pygame.sprite.Sprite):
     """Enemy entity"""
-    def __init__(self, x, y, image, screen_width, level=1):
+    def __init__(self, x, y, image, screen_width, level=1, harmless=False, can_shoot=True, behavior="normal"):
         super().__init__()
         self.image = image
         self.original_image = image
         self.rect = self.image.get_rect(center=(x, y))
         self.screen_width = screen_width
         
+        # Mode flags
+        self.harmless = harmless
+        self.can_shoot_flag = can_shoot
+        self.behavior = behavior  # "normal" (space invaders) or "patrol" (horizontal only)
+        
         # Movement
         self.speed = ENEMY_SPEED + (level * 0.2)
+        if harmless:
+            self.speed *= 0.6  # Slower for tutorial targets
         self.direction = 1
         self.drop_distance = 20
         
@@ -100,10 +108,12 @@ class Enemy(pygame.sprite.Sprite):
         # Boundary checking and direction change
         if self.rect.right >= self.max_x and self.direction > 0:
             self.direction = -1
-            self.rect.y += self.drop_distance
+            if self.behavior != "patrol":
+                self.rect.y += self.drop_distance
         elif self.rect.left <= self.min_x and self.direction < 0:
             self.direction = 1
-            self.rect.y += self.drop_distance
+            if self.behavior != "patrol":
+                self.rect.y += self.drop_distance
         
         # Keep within vertical bounds
         if self.rect.bottom > self.max_y:
@@ -111,6 +121,8 @@ class Enemy(pygame.sprite.Sprite):
     
     def can_shoot(self):
         """Check if enemy can shoot"""
+        if self.harmless or not self.can_shoot_flag:
+            return False
         current_time = pygame.time.get_ticks()
         if current_time - self.last_shot > self.shoot_cooldown:
             if random.random() < self.shoot_chance:
@@ -185,58 +197,6 @@ class Explosion(pygame.sprite.Sprite):
                 self.rect = self.image.get_rect(center=old_center)
 
 
-class TargetDrone(pygame.sprite.Sprite):
-    """Harmless target drone for Boot Camp tutorial - no damage to player"""
-    def __init__(self, x, y, image=None, screen_width=None):
-        super().__init__()
-        self.screen_width = screen_width or REF_WIDTH
-        
-        # Create visual - a simple drone shape
-        if image:
-            self.image = pygame.transform.scale(image, (50, 50))
-        else:
-            self.image = pygame.Surface((50, 50), pygame.SRCALPHA)
-            # Draw drone body
-            pygame.draw.circle(self.image, DRONE_GRAY, (25, 25), 20)
-            pygame.draw.circle(self.image, HOLO_BLUE, (25, 25), 20, 2)
-            # Draw crosshair target symbol
-            pygame.draw.line(self.image, HOLO_GREEN, (10, 25), (40, 25), 2)
-            pygame.draw.line(self.image, HOLO_GREEN, (25, 10), (25, 40), 2)
-            pygame.draw.circle(self.image, HOLO_GREEN, (25, 25), 12, 1)
-        
-        self.original_image = self.image
-        self.rect = self.image.get_rect(center=(x, y))
-        
-        # Movement - slow, predictable
-        self.speed = 1.5
-        self.direction = 1
-        self.amplitude = 30  # How far it moves side to side
-        self.start_x = x
-        self.move_range = 100
-        
-        # Harmless - no shooting, no damage
-        self.harmless = True
-        self.can_shoot = False
-        
-        # Animation
-        self.float_offset = 0
-        self.float_speed = 0.05
-        self.float_timer = 0
-    
-    def update(self):
-        """Update drone position - gentle floating movement"""
-        self.float_timer += self.float_speed
-        self.float_offset = int(5 * (self.float_timer % (2 * 3.14159)))
-        
-        # Horizontal movement within range
-        self.rect.x += self.speed * self.direction
-        if abs(self.rect.centerx - self.start_x) > self.move_range:
-            self.direction *= -1
-        
-        # Gentle floating up and down
-        self.rect.y += int(2 * (self.float_timer % (2 * 3.14159)))
-
-
 class Waypoint(pygame.sprite.Sprite):
     """Tutorial waypoint marker - player must move here"""
     def __init__(self, x, y):
@@ -253,29 +213,21 @@ class Waypoint(pygame.sprite.Sprite):
         ])
         
         self.rect = self.image.get_rect(center=(x, y))
+        self.base_image = self.image.copy()
         self.pulse_timer = 0
         self.pulse_speed = 0.08
         self.base_scale = 1.0
     
     def update(self):
-        """Pulse animation"""
+        """Pulse animation using a pre-rendered base image"""
         self.pulse_timer += self.pulse_speed
-        scale = self.base_scale + 0.15 * (self.pulse_timer % (2 * 3.14159))
+        scale = self.base_scale + 0.1 * math.sin(self.pulse_timer)
+        scale = max(0.8, min(1.2, scale))  # Clamp between 0.8 and 1.2
         
-        # Recreate image with new scale
-        new_size = int(60 * scale)
-        if new_size > 0:
-            self.image = pygame.Surface((new_size, new_size), pygame.SRCALPHA)
-            center = new_size // 2
-            pygame.draw.circle(self.image, HOLO_BLUE, (center, center), int(25 * scale), max(1, int(3 * scale)))
-            pygame.draw.circle(self.image, HOLO_GREEN, (center, center), int(15 * scale), max(1, int(2 * scale)))
-            pygame.draw.polygon(self.image, HOLO_GREEN, [
-                (center, int(10 * scale)), 
-                (int(20 * scale), int(25 * scale)), 
-                (int(40 * scale), int(25 * scale))
-            ])
-            old_center = self.rect.center
-            self.rect = self.image.get_rect(center=old_center)
+        new_size = max(1, int(60 * scale))
+        self.image = pygame.transform.scale(self.base_image, (new_size, new_size))
+        old_center = self.rect.center
+        self.rect = self.image.get_rect(center=old_center)
 
 
 class ExitPortal(pygame.sprite.Sprite):
