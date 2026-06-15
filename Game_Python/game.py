@@ -582,6 +582,24 @@ class Game:
         if event.type == pygame.MOUSEBUTTONDOWN:
             pos = self.rm.screen_to_ref(*event.pos)
 
+            # On-screen touch buttons (fire / shield / mega)
+            if self.touch_fire_rect and self.touch_fire_rect.collidepoint(pos):
+                self.touch_fire_held = True
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = pygame.time.get_ticks()
+                return  # Don't process as movement
+            if self.touch_shield_rect and self.touch_shield_rect.collidepoint(pos):
+                if self.active_bonuses["shield"]["active"]:
+                    self.activate_shield()
+                return
+            if self.touch_mega_rect and self.touch_mega_rect.collidepoint(pos):
+                if self.active_bonuses["mega_shot"]["active"]:
+                    self.mega_shot()
+                return
+
+            # Start dragging to move
+            self.touch_move_pos = pos
+
             # Profile icon
             if self.profile_icon and self.profile_icon.is_clicked(pos):
                 self.prev_state = self.state
@@ -1313,6 +1331,85 @@ class Game:
         self.btn_next_level.draw(self.screen)
         self.btn_level_select.draw(self.screen)
     
+    def _build_touch_zones(self):
+        """Build touch button zones for mobile/touch controls"""
+        if not self.rm:
+            return
+        # Fire button (bottom-right)
+        btn_size = int(80 * self.rm.s)
+        margin = int(20 * self.rm.s)
+        self.touch_fire_rect = pygame.Rect(
+            self.screen_width - btn_size - margin,
+            self.screen_height - btn_size - margin,
+            btn_size, btn_size
+        )
+        # Shield button (above fire)
+        self.touch_shield_rect = pygame.Rect(
+            self.screen_width - btn_size - margin,
+            self.screen_height - btn_size * 2 - margin * 2,
+            btn_size, btn_size
+        )
+        # Mega shot button (above shield)
+        self.touch_mega_rect = pygame.Rect(
+            self.screen_width - btn_size - margin,
+            self.screen_height - btn_size * 3 - margin * 3,
+            btn_size, btn_size
+        )
+
+    def draw_touch_controls(self):
+        """Draw on-screen touch buttons"""
+        if not self.touch_fire_rect:
+            return
+        # Fire button
+        pygame.draw.rect(self.screen, RED, self.touch_fire_rect, border_radius=10)
+        fire_text = self.font_tiny.render("FIRE", True, WHITE)
+        fire_rect = fire_text.get_rect(center=self.touch_fire_rect.center)
+        self.screen.blit(fire_text, fire_rect)
+        # Shield button
+        if self.active_bonuses["shield"]["active"]:
+            pygame.draw.rect(self.screen, BLUE, self.touch_shield_rect, border_radius=10)
+        else:
+            pygame.draw.rect(self.screen, (*BLUE, 128), self.touch_shield_rect, border_radius=10)
+        shield_text = self.font_tiny.render("SHIELD", True, WHITE)
+        shield_rect = shield_text.get_rect(center=self.touch_shield_rect.center)
+        self.screen.blit(shield_text, shield_rect)
+        # Mega shot button
+        if self.active_bonuses["mega_shot"]["active"]:
+            pygame.draw.rect(self.screen, YELLOW, self.touch_mega_rect, border_radius=10)
+        else:
+            pygame.draw.rect(self.screen, (*YELLOW, 128), self.touch_mega_rect, border_radius=10)
+        mega_text = self.font_tiny.render("MEGA", True, WHITE)
+        mega_rect = mega_text.get_rect(center=self.touch_mega_rect.center)
+        self.screen.blit(mega_text, mega_rect)
+
+    def draw_hud(self):
+        """Draw heads-up display"""
+        hud_panel = pygame.Surface((self.screen_width, 50), pygame.SRCALPHA)
+        hud_panel.fill((0, 0, 0, 180))
+        self.screen.blit(hud_panel, (0, 0))
+        
+        score_text = self.font_small.render(f"Score: {self.current_score}", True, WHITE)
+        self.screen.blit(score_text, (20, 15))
+        
+        level_text = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
+        level_rect = level_text.get_rect(center=(self.screen_width // 2, 25))
+        self.screen.blit(level_text, level_rect)
+        
+        lives_text = self.font_small.render(f"Vies: {self.lives}", True, RED)
+        lives_rect = lives_text.get_rect(right=self.screen_width - 120, centery=25)
+        self.screen.blit(lives_text, lives_rect)
+        
+        # Afficher les bonus actifs
+        bonus_x = self.screen_width - 250
+        if self.active_bonuses["shield"]["active"]:
+            shield_text = self.font_tiny.render("BOUCLIER", True, BLUE)
+            self.screen.blit(shield_text, (bonus_x, 15))
+            bonus_x += 80
+        
+        if self.active_bonuses["mega_shot"]["active"]:
+            mega_text = self.font_tiny.render("MEGA TIR", True, YELLOW)
+            self.screen.blit(mega_text, (bonus_x, 15))
+
     def toggle_fullscreen(self):
         """Toggle fullscreen mode.
 
