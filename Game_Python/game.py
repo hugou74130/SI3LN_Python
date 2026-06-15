@@ -186,16 +186,16 @@ class Game:
         
         # Players
         self.players = []
-        player_files = [
-            "1000055338.png", "1000055339.png", "1000055340.png",
-            "1000055341.png", "1000055342.png", "1000055343.png",
-            "1000055344.png", "1000055345.png"
-        ]
-        
-        for file in player_files:
+        for file in PLAYER_SPRITE_FILES:
             img = load_image(f"players/{file}", (90, 90))
             self.players.append(img)
-        
+
+        # Load dash sound placeholder (Phantom Striker ability)
+        self.dash_sound = None
+        try:
+            self.dash_sound = pygame.mixer.Sound("assets/sounds/dash_placeholder.wav")
+        except Exception:
+            pass  # Sound placeholder not required to exist
         # Bullets - will be created dynamically per world
         # Create default bullets (Space world colors)
         default_colors = WORLDS["Space"]["bullet_colors"]
@@ -325,6 +325,7 @@ class Game:
             "Tirer: ESPACE",
             "Bouclier: B",
             "Mega Tir: MAJ",
+            "Phase Dash: CTRL (Phantom Striker uniquement)",
             "Plein ecran: F11",
             "Retour menu: ESC",
             "",
@@ -662,6 +663,8 @@ class Game:
             pos = self.rm.screen_to_ref(*event.pos)
             
             if self.btn_next_level.is_clicked(pos):
+                # Check Phantom Striker unlock conditions on level completion
+                self._check_character_unlocks()
                 self.current_level += 1
                 max_levels = WORLDS[self.current_world]["levels"]
                 if self.current_level > max_levels:
@@ -673,6 +676,7 @@ class Game:
                     self.start_level()
             
             elif self.btn_level_select.is_clicked(pos):
+                self._check_character_unlocks()
                 self._end_api_session()
                 self.level_selector.open()
                 self.state = STATE_LEVEL_SELECT
@@ -724,6 +728,48 @@ class Game:
             bullets_fired=bullets_fired,
             replay_hash=replay_hash,
         )
+
+    def _check_character_unlocks(self):
+        """Check and unlock characters based on current session performance."""
+        if not self.auth.current_user or self.auth.guest_mode:
+            return
+        
+        user_data = self.auth.get_user_data()
+        if not user_data:
+            return
+        
+        unlocked = user_data.get("unlocked_characters", [0])
+        achievements = user_data.get("achievements", [])
+        levels_completed = user_data.get("levels_completed", {})
+        high_score = user_data.get("high_score", 0)
+        
+        # Check Phantom Striker (character 7) unlock conditions:
+        # - Reach Level 3 in any world AND score 5000+ in a single run
+        if 7 not in unlocked:
+            # Check if any world has level >= 3 completed
+            max_level_reached = max(levels_completed.values(), default=0)
+            score_met = self.current_score >= 5000 or high_score >= 5000
+            level_met = max_level_reached >= 3 or self.current_level >= 3
+            
+            if level_met and score_met:
+                unlocked.append(7)
+                self.auth.update_user_data(unlocked_characters=unlocked)
+                
+                # Grant "Phantom Unlocked" achievement if not already granted
+                if "Phantom Unlocked" not in achievements:
+                    achievements.append("Phantom Unlocked")
+                    self.auth.update_user_data(achievements=achievements)
+                    self.show_message("🎉 Phantom Striker débloqué!", GREEN)
+                else:
+                    self.show_message("Phantom Striker débloqué!", GREEN)
+                
+                # Sync unlock to API if authenticated
+                if self.api.is_authenticated():
+                    try:
+                        self.api.unlock_character(7)
+                        self.api.grant_achievement("Phantom Unlocked")
+                    except Exception:
+                        pass  # API sync is best-effort
 
     def trigger_game_over(self):
         """Centralised game-over handler: save score locally and set state."""
@@ -895,8 +941,13 @@ class Game:
                             self.screen_height - 100,
                             player_img,
                             self.screen_width,
-                            self.screen_height)
-        
+                            self.screen_height,
+                            character_idx=self.selected_character)
+
+        # Create enemies
+        print(f"[DEBUG] Spawning enemies...")
+        self.spawn_enemies()
+        print(f"[DEBUG] Level started successfully! Enemies: {len(self.enemies)}")
         # Tutorial sprites group
         self.tutorial_sprites = pygame.sprite.Group()
         self.tutorial_waypoint = None
@@ -1472,9 +1523,9 @@ class Game:
                     # Chance de faire tomber un bonus
                     if random.random() < 0.2:  # 20% de chance
                         self.spawn_bonus(enemy.rect.centerx, enemy.rect.centery)
-        
-        # Enemy bullets hit player
-        if self.player:
+
+        # Enemy bullets hit player (respect Phase Dash invincibility)
+        if self.player and not self.player.is_invincible():
             hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
             if hits:
                 self.lives -= len(hits)
@@ -1484,9 +1535,9 @@ class Game:
                                         explosion_img=self.player_explosion_img)
                     self.explosions.add(explosion)
                     self.trigger_game_over()
-        
-        # Enemies reach player
-        if self.player:
+
+        # Enemies reach player (respect Phase Dash invincibility)
+        if self.player and not self.player.is_invincible():
             hits = pygame.sprite.spritecollide(self.player, self.enemies, True)
             if hits:
                 self.lives -= len(hits) * 2
@@ -1498,9 +1549,9 @@ class Game:
             collected_bonuses = pygame.sprite.spritecollide(self.player, self.bonuses, True)
             for bonus in collected_bonuses:
                 self.activate_bonus(bonus.bonus_type)
-        
-        # Special attacks hit player
-        if self.player:
+
+        # Special attacks hit player (respect Phase Dash invincibility)
+        if self.player and not self.player.is_invincible():
             for attack in self.special_attacks:
                 if pygame.sprite.collide_rect(self.player, attack):
                     if attack.world == "Space":
@@ -1623,6 +1674,12 @@ class Game:
         self.screen.blit(self.game_bg, (0, 0))
         
         if self.player:
+            # Draw ghost trail for Phase Dash
+            if self.player.is_phantom and self.player.ghost_trail:
+                for ghost in self.player.ghost_trail:
+                    ghost_surf = self.player.original_image.copy()
+                    ghost_surf.set_alpha(ghost["alpha"])
+                    self.screen.blit(ghost_surf, ghost["rect"])
             self.screen.blit(self.player.image, self.player.rect)
         
         self.enemies.draw(self.screen)
@@ -1822,6 +1879,24 @@ class Game:
         if self.active_bonuses["mega_shot"]["active"]:
             mega_text = self.font_tiny.render("MEGA TIR", True, YELLOW)
             self.screen.blit(mega_text, (bonus_x, 15))
+            bonus_x += 80
+        
+        # Phase Dash cooldown indicator (Phantom Striker only)
+        if self.player and self.player.is_phantom:
+            cd_ratio = self.player.get_phase_dash_cooldown_ratio()
+            if cd_ratio > 0:
+                # Draw cooldown bar
+                bar_w, bar_h = 60, 8
+                bar_x = bonus_x
+                bar_y = 18
+                pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_w, bar_h))
+                fill_w = int(bar_w * cd_ratio)
+                pygame.draw.rect(self.screen, CYAN, (bar_x, bar_y, fill_w, bar_h))
+                cd_text = self.font_tiny.render("DASH", True, CYAN)
+                self.screen.blit(cd_text, (bar_x, bar_y - 14))
+            else:
+                ready_text = self.font_tiny.render("DASH READY", True, GREEN)
+                self.screen.blit(ready_text, (bonus_x, 15))
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode.

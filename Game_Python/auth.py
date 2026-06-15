@@ -60,7 +60,9 @@ class AuthSystem:
             "selected_character": 0,
             "high_score": 0,
             "boot_camp_completed": False,
-            "levels_completed": {}
+            "levels_completed": {},
+            "unlocked_characters": [0],  # Character 0 always unlocked
+            "achievements": [],
         }
         self.save_users()
         return True, "Compte créé avec succès!"
@@ -115,7 +117,9 @@ class AuthSystem:
                 "selected_character": 0,
                 "high_score": 0,
                 "boot_camp_completed": False,
-                "levels_completed": {}
+                "levels_completed": {},
+                "unlocked_characters": [0],
+                "achievements": [],
             }
             self.save_users()
 

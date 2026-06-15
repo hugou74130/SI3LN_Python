@@ -13,7 +13,20 @@ class PlayerSchema(Schema):
     games_played: int
     highest_level: int
     boot_camp_completed: bool = False
+    unlocked_characters: list = []
     created_at: datetime
+
+
+class PlayerCharacterUnlockSchema(Schema):
+    character_idx: int
+    success: bool
+    message: str
+
+
+class PlayerAchievementGrantSchema(Schema):
+    achievement_name: str
+    success: bool
+    message: str
 
 
 class PlayerCreateSchema(Schema):
@@ -125,6 +138,7 @@ class EnhancedProfileSchema(Schema):
     bio: Optional[str] = ""
     bg_color: Optional[str] = "#000000"
     show_scores: bool = True
+    unlocked_characters: list = []
     created_at: datetime
     updated_at: datetime
     achievements_count: int

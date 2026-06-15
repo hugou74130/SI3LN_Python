@@ -168,6 +168,55 @@ PROFILE_ICON_POSITION = (20, 20)  # Top right offset from screen width
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
+# ── Characters ──────────────────────────────────────────────────────────────
+# Playable characters configuration
+CHARACTER_NAMES = [
+    "Star Fighter",      # 0 - Default
+    "Cosmic Blazer",     # 1
+    "Nebula Ranger",     # 2
+    "Galaxy Defender",   # 3
+    "Void Walker",       # 4
+    "Solar Knight",      # 5
+    "Astro Sentinel",    # 6
+    "Phantom Striker",   # 7 - Unlockable (Level 3+ in any world + 5000+ score)
+]
+
+CHARACTER_ABILITIES = {
+    "Phantom Striker": {
+        "name": "Phase Dash",
+        "description": "Brief invincible dash (0.5s) with 8s cooldown",
+        "dash_duration_ms": 500,    # 0.5s invincibility
+        "cooldown_ms": 8000,        # 8s cooldown
+        "speed_multiplier": 2.5,    # 2.5x speed during dash
+    }
+}
+
+# Unlock conditions for special characters
+CHARACTER_UNLOCK_CONDITIONS = {
+    7: {  # Phantom Striker
+        "min_level_in_any_world": 3,
+        "min_single_run_score": 5000,
+        "achievement_name": "Phantom Unlocked",
+        "achievement_description": "Unlock the Phantom Striker character",
+    }
+}
+
+# Achievement definitions
+ACHIEVEMENTS = {
+    "Phantom Unlocked": {
+        "description": "Unlock the Phantom Striker character",
+        "points": 50,
+        "rarity": "RARE",
+    }
+}
+
+# Player sprite files (must match CHARACTER_NAMES length)
+PLAYER_SPRITE_FILES = [
+    "1000055338.png", "1000055339.png", "1000055340.png",
+    "1000055341.png", "1000055342.png", "1000055343.png",
+    "1000055344.png", "1000055345.png", "1000055346.png"
+]
+
 # ── API Integration ─────────────────────────────────────────────────────────
 # The Python game connects to the SI3LN REST API to submit scores and read
 # leaderboard data.  Set SI3LN_API_URL and SI3LN_TOKEN in the environment
