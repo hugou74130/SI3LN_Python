@@ -13,7 +13,7 @@ from auth import AuthSystem
 from scores import ScoreManager
 from profile import ProfileScreen
 from level_selector import LevelSelector
-from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack
+from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack, TargetDrone, Waypoint, ExitPortal
 from ui_components import Button, InputField, ProfileIcon, Panel, PopUp
 from api_client import api_client  # REST-API integration (scores / sessions)
 
@@ -133,6 +133,26 @@ class Game:
         # Timers pour les attaques spéciales
         self.last_special_attack_time = 0
         self.special_attack_cooldown = 10000  # 10 secondes entre les attaques
+        
+        # Boot Camp tutorial state
+        self.tutorial_objectives = [
+            TUTORIAL_OBJ_MOVE,
+            TUTORIAL_OBJ_SHOOT,
+            TUTORIAL_OBJ_COLLECT,
+            TUTORIAL_OBJ_SURVIVE,
+            TUTORIAL_OBJ_EXIT
+        ]
+        self.tutorial_current_idx = 0
+        self.tutorial_drones_killed = 0
+        self.tutorial_start_time = 0
+        self.tutorial_waypoint = None
+        self.tutorial_exit_portal = None
+        self.tutorial_powerup = None
+        self.tutorial_completed = False
+        self.tutorial_skip_button = Button(
+            REF_WIDTH - 150, 50, 140, 45, "PASSER",
+            self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE
+        )
     
     def load_assets(self):
         """Load all game assets"""
@@ -286,6 +306,12 @@ class Game:
         self.btn_level_select = Button(cx, cy + 190, 250, 70, "CHOIX NIVEAU",
                                        self.font_medium)
         
+        # Tutorial complete buttons
+        self.btn_tutorial_continue = Button(cx, cy + 100, 280, 70, "CONTINUER",
+                                           self.font_medium, bg_color=GREEN)
+        self.btn_tutorial_replay = Button(cx, cy + 190, 280, 70, "REJOUER",
+                                         self.font_medium, bg_color=ORANGE)
+        
         # Message display
         self.message = ""
         self.message_color = WHITE
@@ -423,7 +449,10 @@ class Game:
                         self.current_level = result[2]
                         print(f"[DEBUG] Starting world={self.current_world}, level={self.current_level}")
                         self.level_selector.close()
-                        self.start_level()
+                        if self.current_world == "BootCamp" and WORLDS[self.current_world].get("is_tutorial"):
+                            self.start_tutorial()
+                        else:
+                            self.start_level()
                     elif result[0] == "BACK":
                         self.level_selector.close()
                         self.state = STATE_MAIN_MENU
@@ -437,6 +466,10 @@ class Game:
                 self.state = STATE_MAIN_MENU
             elif self.state == STATE_GAMEPLAY:
                 self.handle_gameplay_events(event)
+            elif self.state == STATE_TUTORIAL:
+                self.handle_tutorial_events(event)
+            elif self.state == STATE_TUTORIAL_COMPLETE:
+                self.handle_tutorial_complete_events(event)
             elif self.state == STATE_GAME_OVER:
                 self.handle_game_over_events(event)
             elif self.state == STATE_LEVEL_WIN:
@@ -764,6 +797,322 @@ class Game:
         self.spawn_enemies()
         print(f"[DEBUG] Level started successfully! Enemies: {len(self.enemies)}")
     
+    def start_tutorial(self):
+        """Start the Boot Camp tutorial"""
+        print("[DEBUG] Starting Boot Camp tutorial")
+        self.state = STATE_TUTORIAL
+        self.current_world = "BootCamp"
+        self.current_level = 1
+        self.current_score = 0
+        self.lives = MAX_LIVES
+        self.enemies_killed = 0
+        self.tutorial_drones_killed = 0
+        self.tutorial_current_idx = 0
+        self.tutorial_completed = False
+        self.tutorial_start_time = pygame.time.get_ticks()
+        self.tutorial_objective_start_time = self.tutorial_start_time
+        
+        # Set background
+        self.game_bg = self.world_backgrounds.get("BootCamp", self.world_backgrounds.get("Space"))
+        
+        # Ensure explosion images exist (use fallback if not loaded yet)
+        if not hasattr(self, "enemy_explosion_img"):
+            self.enemy_explosion_img = None
+        if not hasattr(self, "player_explosion_img"):
+            self.player_explosion_img = None
+        
+        # BootCamp bullet colors
+        colors = WORLDS["BootCamp"]["bullet_colors"]
+        self.player_bullet_img = create_bullet_surface(
+            colors["player"][0], colors["player"][1], (15, 25)
+        )
+        self.enemy_bullet_img = create_bullet_surface(
+            colors["enemy"][0], colors["enemy"][1], (10, 20)
+        )
+        
+        # Clear entity groups
+        self.enemies.empty()
+        self.player_bullets.empty()
+        self.enemy_bullets.empty()
+        self.explosions.empty()
+        self.bonuses.empty()
+        self.special_attacks.empty()
+        
+        # Reset debuffs
+        self.player_debuffs = {
+            "frozen": False,
+            "blinded": False,
+            "rooted": False,
+            "timer": 0,
+            "duration": 0
+        }
+        
+        # Reset bonuses
+        self.active_bonuses = {
+            "shield": {"active": False, "timer": 0, "duration": 3000},
+            "mega_shot": {"active": False, "timer": 0, "duration": 5000}
+        }
+        
+        # Create player
+        player_img = self.players[self.selected_character]
+        self.player = Player(self.screen_width // 2,
+                            self.screen_height - 100,
+                            player_img,
+                            self.screen_width,
+                            self.screen_height)
+        
+        # Tutorial sprites group
+        self.tutorial_sprites = pygame.sprite.Group()
+        self.tutorial_waypoint = None
+        self.tutorial_exit_portal = None
+        self.tutorial_powerup = None
+        
+        # Spawn waypoint at center-left
+        self.tutorial_waypoint = Waypoint(250, self.screen_height // 2)
+        self.tutorial_sprites.add(self.tutorial_waypoint)
+        
+        # Spawn target drones at top
+        drone_y = 100
+        spacing = (self.screen_width - 300) // max(TUTORIAL_DRONE_COUNT - 1, 1)
+        for i in range(TUTORIAL_DRONE_COUNT):
+            x = 150 + i * spacing
+            y = drone_y + (i % 2) * 60
+            drone = TargetDrone(x, y, image=None, screen_width=self.screen_width)
+            self.tutorial_sprites.add(drone)
+        
+        # Spawn power-up
+        self.tutorial_powerup = Bonus(self.screen_width // 2, 200, "shield")
+        self.tutorial_sprites.add(self.tutorial_powerup)
+        
+        self.show_message("OBJECTIF: Deplacez-vous vers le point lumineux!", HOLO_BLUE, 300)
+    
+    def _get_tutorial_objective_text(self):
+        """Get display text for current tutorial objective"""
+        if self.tutorial_current_idx >= len(self.tutorial_objectives):
+            return "Boot Camp termine!"
+        obj = self.tutorial_objectives[self.tutorial_current_idx]
+        texts = {
+            TUTORIAL_OBJ_MOVE: "Deplacez-vous vers le point lumineux (fleches/WASD ou glisser)",
+            TUTORIAL_OBJ_SHOOT: "Tirez sur les drones (ESPACE ou bouton FIRE)",
+            TUTORIAL_OBJ_COLLECT: "Ramassez le bonus bleu",
+            TUTORIAL_OBJ_SURVIVE: "Survivez 30 secondes",
+            TUTORIAL_OBJ_EXIT: "Atteignez le portail de sortie"
+        }
+        return f"OBJECTIF: {texts.get(obj, obj)}"
+    
+    def _advance_tutorial_objective(self, next_description, color=WHITE):
+        """Advance to the next tutorial objective and show a message"""
+        self.tutorial_current_idx += 1
+        self.tutorial_objective_start_time = pygame.time.get_ticks()
+        if self.tutorial_current_idx < len(self.tutorial_objectives):
+            self.show_message(next_description, color, 300)
+    
+    def update_tutorial(self):
+        """Update Boot Camp tutorial logic"""
+        if not self.player:
+            return
+        
+        # Update player
+        keys = pygame.key.get_pressed()
+        if not self.player_debuffs["rooted"]:
+            self.player.update(keys)
+            if self.touch_held and self.touch_move_pos and not self.touch_fire_held:
+                self.player.move_toward(*self.touch_move_pos)
+        
+        # Touch auto-fire
+        if self.touch_fire_held:
+            now = pygame.time.get_ticks()
+            if now - self.touch_auto_fire_timer >= self.touch_auto_fire_delay:
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = now
+        
+        # Update bullets, explosions and tutorial sprites
+        self.player_bullets.update()
+        self.explosions.update()
+        self.tutorial_sprites.update()
+        
+        # No death penalty during tutorial
+        if TUTORIAL_NO_DEATH_PENALTY:
+            self.lives = MAX_LIVES
+        
+        if self.tutorial_current_idx >= len(self.tutorial_objectives):
+            return
+        
+        current_obj = self.tutorial_objectives[self.tutorial_current_idx]
+        
+        if current_obj == TUTORIAL_OBJ_MOVE:
+            if self.tutorial_waypoint and self.player:
+                dx = self.player.rect.centerx - self.tutorial_waypoint.rect.centerx
+                dy = self.player.rect.centery - self.tutorial_waypoint.rect.centery
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < 50:
+                    self._advance_tutorial_objective(
+                        "OBJECTIF: Tirez sur les drones!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_SHOOT:
+            # Player bullets vs target drones
+            for bullet in self.player_bullets:
+                hits = pygame.sprite.spritecollide(bullet, self.tutorial_sprites, False)
+                for sprite in hits:
+                    if isinstance(sprite, TargetDrone):
+                        sprite.kill()
+                        bullet.kill()
+                        self.tutorial_drones_killed += 1
+                        self.enemies_killed += 1
+                        self.current_score += 10
+                        explosion = Explosion(sprite.rect.centerx, sprite.rect.centery,
+                                            explosion_img=self.enemy_explosion_img)
+                        self.explosions.add(explosion)
+                        break
+            if self.tutorial_drones_killed >= TUTORIAL_DRONE_COUNT:
+                self._advance_tutorial_objective(
+                    "OBJECTIF: Ramassez le bonus bleu!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_COLLECT:
+            if self.tutorial_powerup and self.player:
+                if pygame.sprite.collide_rect(self.player, self.tutorial_powerup):
+                    bonus_type = self.tutorial_powerup.bonus_type
+                    self.tutorial_powerup.kill()
+                    self.activate_bonus(bonus_type)
+                    self._advance_tutorial_objective(
+                        "OBJECTIF: Survivez 30 secondes!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_SURVIVE:
+            elapsed = pygame.time.get_ticks() - self.tutorial_objective_start_time
+            if elapsed >= TUTORIAL_SURVIVE_TIME:
+                self._advance_tutorial_objective(
+                    "OBJECTIF: Atteignez le portail de sortie!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_EXIT:
+            if not self.tutorial_exit_portal:
+                self.tutorial_exit_portal = ExitPortal(
+                    self.screen_width - 150, self.screen_height // 2)
+                self.tutorial_sprites.add(self.tutorial_exit_portal)
+            if self.tutorial_exit_portal and self.player:
+                if pygame.sprite.collide_rect(self.player, self.tutorial_exit_portal):
+                    self.complete_tutorial()
+    
+    def handle_tutorial_events(self, event):
+        """Handle tutorial input events"""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                self.shoot_player_bullet()
+            if event.key == pygame.K_b and self.active_bonuses["shield"]["active"]:
+                self.activate_shield()
+            if event.key == pygame.K_LSHIFT and self.active_bonuses["mega_shot"]["active"]:
+                self.mega_shot()
+            if event.key == pygame.K_ESCAPE:
+                self.state = STATE_LEVEL_SELECT
+                self.level_selector.open()
+        
+        if event.type == pygame.MOUSEMOTION and self.touch_held:
+            self.touch_move_pos = self.rm.screen_to_ref(*event.pos)
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            # Skip button
+            if self.tutorial_skip_button.is_clicked(pos):
+                self.complete_tutorial()
+                return
+            
+            # On-screen touch buttons
+            if self.touch_fire_rect and self.touch_fire_rect.collidepoint(pos):
+                self.touch_fire_held = True
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = pygame.time.get_ticks()
+                return
+            if self.touch_shield_rect and self.touch_shield_rect.collidepoint(pos):
+                if self.active_bonuses["shield"]["active"]:
+                    self.activate_shield()
+                return
+            if self.touch_mega_rect and self.touch_mega_rect.collidepoint(pos):
+                if self.active_bonuses["mega_shot"]["active"]:
+                    self.mega_shot()
+                return
+            
+            # Start dragging to move
+            self.touch_move_pos = pos
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.prev_state = self.state
+                self.profile_screen.open()
+    
+    def complete_tutorial(self):
+        """Mark Boot Camp as completed and unlock the rest of the game"""
+        self.tutorial_completed = True
+        self.level_selector.set_boot_camp_completed(True, self.auth)
+        
+        # Try API unlock if the client exposes such a method
+        if self.api.is_authenticated() and hasattr(self.api, "unlock_world"):
+            try:
+                self.api.unlock_world("BootCamp")
+            except Exception as e:
+                print(f"[DEBUG] API unlock_world call failed: {e}")
+        
+        self.state = STATE_TUTORIAL_COMPLETE
+        self.show_message("Boot Camp termine!", HOLO_GREEN, 300)
+    
+    def handle_tutorial_complete_events(self, event):
+        """Handle tutorial completion screen events"""
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            if self.btn_tutorial_continue.is_clicked(pos):
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+            elif self.btn_tutorial_replay.is_clicked(pos):
+                self.start_tutorial()
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.profile_screen.open()
+    
+    def draw_tutorial(self):
+        """Draw the tutorial gameplay screen"""
+        self.screen.blit(self.game_bg, (0, 0))
+        
+        if self.player:
+            self.screen.blit(self.player.image, self.player.rect)
+        
+        self.tutorial_sprites.draw(self.screen)
+        self.player_bullets.draw(self.screen)
+        self.explosions.draw(self.screen)
+        
+        # Objective text at top
+        obj_text = self._get_tutorial_objective_text()
+        obj_surf = self.font_small.render(obj_text, True, HOLO_BLUE)
+        obj_rect = obj_surf.get_rect(center=(self.screen_width // 2, 90))
+        bg_rect = obj_rect.inflate(20, 10)
+        pygame.draw.rect(self.screen, (0, 0, 0, 180), bg_rect, border_radius=5)
+        self.screen.blit(obj_surf, obj_rect)
+        
+        # Skip button
+        self.tutorial_skip_button.draw(self.screen)
+        
+        self.draw_hud()
+        self.draw_touch_controls()
+    
+    def draw_tutorial_complete(self):
+        """Draw the tutorial completion screen"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        title = self.font_large.render("BOOT CAMP TERMINE!", True, GREEN)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 200))
+        self.screen.blit(title, title_rect)
+        
+        score_text = self.font_medium.render(f"Score: {self.current_score}", True, WHITE)
+        score_rect = score_text.get_rect(center=(self.screen_width // 2, 280))
+        self.screen.blit(score_text, score_rect)
+        
+        self.btn_tutorial_continue.draw(self.screen)
+        self.btn_tutorial_replay.draw(self.screen)
+    
     def spawn_enemies(self):
         """Spawn enemies for current level"""
         base_rows = 3
@@ -947,6 +1296,14 @@ class Game:
         elif self.state == STATE_GAMEPLAY:
             self.update_gameplay()
         
+        elif self.state == STATE_TUTORIAL:
+            self.update_tutorial()
+            self.tutorial_skip_button.update(mouse_pos)
+        
+        elif self.state == STATE_TUTORIAL_COMPLETE:
+            self.btn_tutorial_continue.update(mouse_pos)
+            self.btn_tutorial_replay.update(mouse_pos)
+        
         elif self.state == STATE_GAME_OVER:
             self.btn_restart.update(mouse_pos)
             self.btn_finish.update(mouse_pos)
@@ -1113,6 +1470,10 @@ class Game:
             self.draw_main_menu()
         elif self.state == STATE_GAMEPLAY:
             self.draw_gameplay()
+        elif self.state == STATE_TUTORIAL:
+            self.draw_tutorial()
+        elif self.state == STATE_TUTORIAL_COMPLETE:
+            self.draw_tutorial_complete()
         elif self.state == STATE_GAME_OVER:
             self.draw_game_over()
         elif self.state == STATE_LEVEL_WIN:

@@ -153,11 +153,14 @@ class LevelSelector:
         if world_name in self.world_unlocked:
             self.world_unlocked[world_name] = unlocked
     
-    def set_boot_camp_completed(self, completed=True):
+    def set_boot_camp_completed(self, completed=True, auth=None):
         """Mark Boot Camp as completed - unlocks Space world"""
         self.boot_camp_completed = completed
         if completed:
             self.world_unlocked["Space"] = True
+        # Persist to local auth data when available
+        if auth and not auth.guest_mode and auth.current_user:
+            auth.update_user_data(boot_camp_completed=completed)
     
     def close(self):
         """Close level selector"""
