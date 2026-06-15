@@ -20,6 +20,13 @@ class LevelSelector:
         self.active = False
         self.view = "WORLDS"  # "WORLDS" or "LEVELS"
         
+        # World unlock state: Boot Camp is playable by default; other worlds
+        # are unlocked once Boot Camp is completed.
+        self.boot_camp_completed = False
+        self.world_unlocked = {world: False for world in self.worlds}
+        if "BootCamp" in self.world_unlocked:
+            self.world_unlocked["BootCamp"] = True
+        
         # Load world backgrounds
         self.world_backgrounds = {}
         for world_key, world_data in self.worlds.items():
