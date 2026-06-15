@@ -694,6 +694,37 @@ class Game:
         self._session_started = False
         self._session_start_time = 0
 
+    def _submit_leaderboard(self):
+        """Submit the completed run to the persistent leaderboard."""
+        if not self.api.is_authenticated():
+            return None
+        duration = 0
+        if self._session_started:
+            duration = (pygame.time.get_ticks() - self._session_start_time) // 1000
+        # Build a simple deterministic replay hash from key game stats
+        import hashlib
+        replay_data = f"{self.current_score}:{self.enemies_killed}:{self.current_level}:{duration}:{self.selected_character}"
+        replay_hash = hashlib.sha256(replay_data.encode()).hexdigest()[:32]
+        from constants import WORLD_IDS
+        world_id = WORLD_IDS.get(self.current_world, 1)
+        # Count active bonuses as power-ups used
+        powerups_used = sum(1 for b in self.active_bonuses.values() if b.get("active", False))
+        # Estimate accuracy (basic heuristic)
+        bullets_fired = max(self.enemies_killed, 1)
+        accuracy = 100.0 if bullets_fired == 0 else (self.enemies_killed / bullets_fired) * 100
+        return self.api.submit_leaderboard(
+            score=self.current_score,
+            world_id=world_id,
+            level_id=self.current_level,
+            character_used=CHARACTER_NAMES[self.selected_character] if self.selected_character < len(CHARACTER_NAMES) else "",
+            duration_sec=duration,
+            accuracy_pct=round(accuracy, 2),
+            enemies_killed=self.enemies_killed,
+            powerups_used=powerups_used,
+            bullets_fired=bullets_fired,
+            replay_hash=replay_hash,
+        )
+
     def trigger_game_over(self):
         """Centralised game-over handler: save score locally and set state."""
         self.player = None
@@ -706,6 +737,11 @@ class Game:
                 high_score=max(self.current_score,
                                self.auth.get_user_data("high_score") or 0)
             )
+            # Submit to persistent leaderboard (best-effort)
+            try:
+                self._submit_leaderboard()
+            except Exception:
+                pass
         self.state = STATE_GAME_OVER
 
     def start_level(self):

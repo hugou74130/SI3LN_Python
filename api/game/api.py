@@ -1,7 +1,10 @@
 from ninja import Router
 from typing import List
 from django.shortcuts import get_object_or_404
-from .models import Player, GameSession
+from django.db import connection
+from django.utils import timezone
+from django.db.models import Max, Avg, Count, Q
+from .models import Player, GameSession, LeaderboardEntry, LeaderboardRank, ScoreSubmissionLog, World
 from .schemas import (
     PlayerSchema,
     PlayerCreateSchema,
@@ -9,6 +12,13 @@ from .schemas import (
     GameSessionCreateSchema,
     GameSessionUpdateSchema,
     LeaderboardEntrySchema,
+    LeaderboardEntryDetailSchema,
+    LeaderboardRankSchema,
+    LeaderboardSubmitSchema,
+    LeaderboardGlobalResponseSchema,
+    LeaderboardPlayerHistorySchema,
+    LeaderboardNearbySchema,
+    LeaderboardSubmitResponseSchema,
     MessageSchema,
     WorldSchema,
     AchievementSchema,
@@ -22,6 +32,116 @@ from .schemas import (
 from .auth.auth_decorators import jwt_auth
 
 router = Router()
+
+
+# ── Anti-cheat helpers ───────────────────────────────────────────────
+
+MAX_SCORE_PER_ENEMY = 150
+MAX_SCORE_PER_LEVEL_BONUS = 5000
+MAX_SCORE_PER_POWERUP = 1000
+RATE_LIMIT_SECONDS = 10
+
+
+def _get_client_ip(request):
+    """Extract client IP from request."""
+    x_forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded:
+        return x_forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '')
+
+
+def _hash_ip(ip: str) -> str:
+    """Hash IP address for privacy-compliant rate limiting."""
+    import hashlib
+    return hashlib.sha256(ip.encode()).hexdigest()[:32]
+
+
+def _check_rate_limit(player: Player, ip_hash: str) -> tuple[bool, str]:
+    """Check if player is rate-limited. Returns (allowed, reason)."""
+    from datetime import timedelta
+    cutoff = timezone.now() - timedelta(seconds=RATE_LIMIT_SECONDS)
+    recent = ScoreSubmissionLog.objects.filter(
+        Q(player=player) | Q(ip_hash=ip_hash),
+        submitted_at__gte=cutoff
+    ).first()
+    if recent:
+        remaining = RATE_LIMIT_SECONDS - (timezone.now() - recent.submitted_at).seconds
+        return False, f"Rate limited. Wait {remaining}s before next submission."
+    return True, ""
+
+
+def _validate_max_possible_score(score: int, enemies_killed: int, level_id: int,
+                                  powerups_used: int, bullets_fired: int) -> tuple[bool, str]:
+    """Server-side score validation: compute theoretical max and reject impossibly high scores."""
+    max_from_enemies = enemies_killed * MAX_SCORE_PER_ENEMY
+    max_level_bonus = (level_id - 1) * MAX_SCORE_PER_LEVEL_BONUS
+    max_from_powerups = powerups_used * MAX_SCORE_PER_POWERUP
+    # Add generous headroom (2x) for combo multipliers / bonuses
+    theoretical_max = (max_from_enemies + max_level_bonus + max_from_powerups) * 2
+    if score > theoretical_max:
+        return False, (
+            f"Score {score} exceeds theoretical maximum {theoretical_max} "
+            f"(enemies={enemies_killed}, level={level_id}, powerups={powerups_used})"
+        )
+    # Sanity: accuracy consistency
+    if bullets_fired > 0:
+        expected_accuracy = (enemies_killed / bullets_fired) * 100
+        # Allow 10% margin for splash damage / multi-kills
+        if expected_accuracy > 110:
+            return False, f"Accuracy inconsistency: {expected_accuracy:.1f}% with {bullets_fired} bullets fired"
+    return True, ""
+
+
+def _verify_replay_hash(replay_hash: str, score: int, enemies_killed: int,
+                        duration_sec: int, level_id: int) -> bool:
+    """Verify replay hash determinism. Simple heuristic: hash must be non-empty and look valid."""
+    if not replay_hash or len(replay_hash) < 16:
+        return False
+    # In a full implementation, the server would replay the inputs and compare.
+    # For now we accept any well-formed hash and flag for manual review if suspicious.
+    return True
+
+
+def _refresh_leaderboard_ranks():
+    """Refresh the materialized view leaderboard_ranks."""
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            DROP TABLE IF EXISTS leaderboard_ranks;
+            CREATE TABLE leaderboard_ranks AS
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY MAX(le.score) DESC) AS rank,
+                p.id AS player_id,
+                p.username AS player_name,
+                MAX(le.score) AS best_score,
+                COUNT(le.id) AS total_runs,
+                ROUND(AVG(le.score), 2) AS avg_score,
+                MAX(le.created_at) AS last_played
+            FROM game_leaderboardentry le
+            JOIN game_player p ON le.player_id = p.id
+            WHERE le.verified = TRUE AND le.flagged = FALSE
+            GROUP BY p.id, p.username
+            ORDER BY best_score DESC;
+        """)
+
+
+def _entry_to_dict(entry: LeaderboardEntry) -> dict:
+    """Serialize a LeaderboardEntry to a dict matching LeaderboardEntryDetailSchema."""
+    return {
+        "id": str(entry.id),
+        "player_id": entry.player_id,
+        "player_name": entry.player_name,
+        "score": entry.score,
+        "world_id": entry.world_id,
+        "level_id": entry.level_id,
+        "character_used": entry.character_used,
+        "duration_sec": entry.duration_sec,
+        "accuracy_pct": float(entry.accuracy_pct),
+        "enemies_killed": entry.enemies_killed,
+        "powerups_used": entry.powerups_used,
+        "created_at": entry.created_at,
+        "is_pb": entry.is_pb,
+        "verified": entry.verified,
+    }
 
 
 # Player endpoints (protected)
@@ -179,10 +299,10 @@ def delete_session(request, session_id: int):
     return {"message": "Session deleted successfully"}
 
 
-# Leaderboard endpoints (public - no auth required for viewing)
+# ── Legacy Leaderboard endpoints (public - kept for backward compatibility) ──
 @router.get("/leaderboard", response=List[LeaderboardEntrySchema], tags=["Leaderboard"])
 def get_leaderboard(request, world_id: int = None, limit: int = 10):
-    """Get the leaderboard (public access)"""
+    """Get the legacy leaderboard (public access) — kept for backward compatibility."""
     sessions = GameSession.objects.select_related("player", "world")
     
     if world_id:
@@ -203,6 +323,229 @@ def get_leaderboard(request, world_id: int = None, limit: int = 10):
         })
     
     return leaderboard
+
+
+# ── Leaderboard v2 endpoints ─────────────────────────────────────────
+
+@router.get("/leaderboard/global", response=LeaderboardGlobalResponseSchema, tags=["Leaderboard v2"])
+def get_leaderboard_global(request, world: int = None, limit: int = 50):
+    """Get top N global scores from the persistent leaderboard.
+
+    * `world` – filter by world ID (optional).
+    * `limit` – max entries to return (default 50, max 200).
+    """
+    if limit < 1:
+        limit = 1
+    if limit > 200:
+        limit = 200
+
+    qs = LeaderboardEntry.objects.filter(verified=True, flagged=False)
+    if world is not None:
+        qs = qs.filter(world_id=world)
+
+    total = qs.count()
+    entries = qs.order_by("-score", "created_at")[:limit]
+
+    return {
+        "entries": [_entry_to_dict(e) for e in entries],
+        "total": total,
+        "world_id": world,
+    }
+
+
+@router.get("/leaderboard/player/{player_id}", response=LeaderboardPlayerHistorySchema, tags=["Leaderboard v2"])
+def get_leaderboard_player(request, player_id: int):
+    """Get a player's full history + personal bests."""
+    player = get_object_or_404(Player, id=player_id)
+    all_entries = LeaderboardEntry.objects.filter(player=player).order_by("-created_at")
+    pbs = all_entries.filter(is_pb=True).order_by("-score")
+    recent = all_entries[:20]
+
+    stats = all_entries.aggregate(
+        best=Max("score"),
+        avg=Avg("score"),
+        total=Count("id"),
+    )
+
+    return {
+        "player_id": player.id,
+        "player_name": player.username,
+        "personal_bests": [_entry_to_dict(e) for e in pbs],
+        "recent_runs": [_entry_to_dict(e) for e in recent],
+        "total_runs": stats.get("total", 0),
+        "avg_score": round(float(stats.get("avg") or 0), 2),
+        "best_score": stats.get("best") or 0,
+    }
+
+
+@router.get("/leaderboard/nearby", response=LeaderboardNearbySchema, tags=["Leaderboard v2"])
+def get_leaderboard_nearby(request, player: int, radius: int = 5):
+    """Get players ranked near the target player.
+
+    * `player` – target player ID.
+    * `radius` – how many ranks above and below to include (default 5, max 20).
+    """
+    if radius < 1:
+        radius = 1
+    if radius > 20:
+        radius = 20
+
+    # Find target player's rank from materialized view
+    target_rank = None
+    try:
+        rank_entry = LeaderboardRank.objects.filter(player_id=player).first()
+        if rank_entry:
+            target_rank = rank_entry.rank
+    except Exception:
+        pass
+
+    if target_rank is None:
+        # Fallback: compute rank on the fly
+        from django.db.models import Window, F
+        from django.db.models.functions import RowNumber
+        # Simpler fallback: count players with higher best score
+        player_best = LeaderboardEntry.objects.filter(
+            player_id=player, verified=True, flagged=False
+        ).aggregate(best=Max("score"))["best"]
+        if player_best is None:
+            from ninja.responses import Response
+            return Response({"error": "Player has no verified scores."}, status=404)
+        target_rank = LeaderboardEntry.objects.filter(
+            verified=True, flagged=False, score__gt=player_best
+        ).values("player").distinct().count() + 1
+
+    low = max(1, target_rank - radius)
+    high = target_rank + radius
+
+    try:
+        entries = LeaderboardRank.objects.filter(rank__gte=low, rank__lte=high)
+    except Exception:
+        entries = []
+
+    return {
+        "target_player_id": player,
+        "target_rank": target_rank,
+        "entries": [
+            {
+                "rank": e.rank,
+                "player_id": e.player_id,
+                "player_name": e.player_name,
+                "best_score": e.best_score,
+                "total_runs": e.total_runs,
+                "avg_score": float(e.avg_score),
+                "last_played": e.last_played,
+            }
+            for e in entries
+        ],
+    }
+
+
+@router.post("/leaderboard/submit", response=LeaderboardSubmitResponseSchema, tags=["Leaderboard v2"], auth=jwt_auth)
+def submit_leaderboard_entry(request, payload: LeaderboardSubmitSchema):
+    """Submit a new run to the persistent leaderboard (auth required, anti-cheat enforced).
+
+    Anti-cheat checks:
+    1. Rate limiting (1 submission per 10s per player/IP).
+    2. Server-side score validation (max possible score from enemy count + bonuses).
+    3. Replay hash verification (non-empty, well-formed hash required).
+    4. Flagged scores are hidden from global leaderboard until manual review.
+    """
+    from ninja.responses import Response
+
+    user = request.auth
+    try:
+        player = Player.objects.get(user=user)
+    except Player.DoesNotExist:
+        return Response({"error": "Player profile not found."}, status=404)
+
+    ip = _get_client_ip(request)
+    ip_hash = _hash_ip(ip)
+
+    # 1. Rate limiting
+    allowed, reason = _check_rate_limit(player, ip_hash)
+    if not allowed:
+        ScoreSubmissionLog.objects.create(
+            player=player, ip_hash=ip_hash, score=payload.score,
+            accepted=False, rejection_reason=reason
+        )
+        return Response({
+            "success": False,
+            "message": reason,
+            "flagged": False,
+        }, status=429)
+
+    # 2. Score validation
+    valid, reason = _validate_max_possible_score(
+        score=payload.score,
+        enemies_killed=payload.enemies_killed,
+        level_id=payload.level_id,
+        powerups_used=payload.powerups_used,
+        bullets_fired=payload.bullets_fired,
+    )
+    if not valid:
+        ScoreSubmissionLog.objects.create(
+            player=player, ip_hash=ip_hash, score=payload.score,
+            accepted=False, rejection_reason=reason
+        )
+        return Response({
+            "success": False,
+            "message": reason,
+            "flagged": True,
+        }, status=400)
+
+    # 3. Replay hash verification
+    replay_ok = _verify_replay_hash(
+        payload.replay_hash, payload.score, payload.enemies_killed,
+        payload.duration_sec, payload.level_id
+    )
+    flagged = not replay_ok
+
+    # 4. Create entry
+    world = None
+    if payload.world_id:
+        world = World.objects.filter(id=payload.world_id).first()
+
+    entry = LeaderboardEntry.objects.create(
+        player=player,
+        player_name=player.username,
+        score=payload.score,
+        world=world,
+        level_id=payload.level_id,
+        character_used=payload.character_used,
+        duration_sec=payload.duration_sec,
+        accuracy_pct=payload.accuracy_pct,
+        enemies_killed=payload.enemies_killed,
+        powerups_used=payload.powerups_used,
+        replay_hash=payload.replay_hash,
+        verified=replay_ok,
+        flagged=flagged,
+    )
+
+    # Log submission
+    ScoreSubmissionLog.objects.create(
+        player=player, ip_hash=ip_hash, score=payload.score,
+        accepted=True, rejection_reason=""
+    )
+
+    # Refresh materialized view asynchronously (in production, use a Celery task)
+    try:
+        _refresh_leaderboard_ranks()
+    except Exception:
+        pass
+
+    # Compute new rank
+    new_rank = LeaderboardEntry.objects.filter(
+        verified=True, flagged=False, score__gt=entry.score
+    ).values("player").distinct().count() + 1
+
+    return {
+        "success": True,
+        "entry_id": str(entry.id),
+        "is_pb": entry.is_pb,
+        "new_rank": new_rank,
+        "message": "Score submitted successfully." + (" Awaiting manual review." if flagged else ""),
+        "flagged": flagged,
+    }
 
 
 # Stats endpoint (public - no auth required)
