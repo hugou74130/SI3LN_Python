@@ -17,6 +17,8 @@ class Player(models.Model):
     bg_color = models.CharField(max_length=7, default='#000000')  # Hex color
     show_scores = models.BooleanField(default=True)
     boot_camp_completed = models.BooleanField(default=False)  # Boot Camp tutorial completion
+    # Character unlock tracking
+    unlocked_characters = models.JSONField(default=list, blank=True)  # List of unlocked character indices
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -25,6 +27,18 @@ class Player(models.Model):
 
     def __str__(self):
         return self.username
+    
+    def unlock_character(self, character_idx):
+        """Unlock a character if not already unlocked"""
+        if character_idx not in self.unlocked_characters:
+            self.unlocked_characters.append(character_idx)
+            self.save(update_fields=['unlocked_characters'])
+            return True
+        return False
+    
+    def has_character_unlocked(self, character_idx):
+        """Check if a character is unlocked"""
+        return character_idx in self.unlocked_characters
 
 
 class World(models.Model):

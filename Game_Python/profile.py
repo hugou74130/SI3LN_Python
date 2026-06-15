@@ -1,6 +1,7 @@
 """
 Profile management screen for SI3LN Game
 Allows user to modify character, username, and password
+Shows locked/unlocked character status
 """
 import pygame
 from constants import *
@@ -18,7 +19,38 @@ class ProfileScreen:
         self.screen_width = screen.get_width()
         self.screen_height = screen.get_height()
         
+        # Lock icon (simple drawn lock)
+        self.lock_icon = self._create_lock_icon()
+        
         self.setup_ui()
+    
+    def _create_lock_icon(self):
+        """Create a small lock icon surface"""
+        size = 24
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        # Lock body
+        pygame.draw.rect(surf, (200, 200, 200), (4, 10, 16, 14), border_radius=2)
+        # Lock shackle
+        pygame.draw.arc(surf, (200, 200, 200), (6, 2, 12, 12), 3.14, 0, 2)
+        return surf
+    
+    def _is_character_unlocked(self, char_idx):
+        """Check if a character is unlocked for the current user"""
+        if char_idx < 7:
+            # Characters 0-6 are always unlocked
+            return True
+        
+        if char_idx == 7:
+            # Phantom Striker requires unlock
+            if self.auth.guest_mode:
+                return False
+            user_data = self.auth.get_user_data()
+            if not user_data:
+                return False
+            unlocked = user_data.get("unlocked_characters", [0])
+            return char_idx in unlocked
+        
+        return False
     
     def setup_ui(self):
         """Setup UI components"""
@@ -34,17 +66,17 @@ class ProfileScreen:
         panel_y = (self.screen_height - panel_height) // 2
         self.panel = Panel(panel_x, panel_y, panel_width, panel_height)
         
-        # Character selection buttons
+        # Character selection buttons (all characters, including locked ones)
         self.character_buttons = []
         start_x = panel_x + 50
         start_y = panel_y + 150
-        for i in range(min(7, len(self.players))):
+        for i in range(min(len(CHARACTER_NAMES), len(self.players))):
             row = i // 4
             col = i % 4
             x = start_x + col * 120
             y = start_y + row * 120
             btn = ImageButton(x + 50, y + 50, 80, 80, self.players[i], 
-                            self.font_small, f"P{i+1}")
+                            self.font_small, CHARACTER_NAMES[i])
             self.character_buttons.append(btn)
         
         # Input fields
@@ -94,7 +126,7 @@ class ProfileScreen:
         elif self.auth.guest_mode:
             self.selected_character = self.auth.guest_character
         
-        # Update character selection
+        # Update character selection (only select if unlocked)
         for i, btn in enumerate(self.character_buttons):
             btn.selected = (i == self.selected_character)
         
@@ -125,9 +157,15 @@ class ProfileScreen:
             # Character selection
             for i, btn in enumerate(self.character_buttons):
                 if btn.is_clicked(pos):
-                    self.selected_character = i
-                    for j, b in enumerate(self.character_buttons):
-                        b.selected = (j == i)
+                    if self._is_character_unlocked(i):
+                        self.selected_character = i
+                        for j, b in enumerate(self.character_buttons):
+                            b.selected = (j == i)
+                    else:
+                        # Show locked message
+                        self.message = f"{CHARACTER_NAMES[i]} est verrouillé!"
+                        self.message_color = RED
+                        self.message_timer = 180
             
             # Save button
             if self.save_button.is_clicked(pos):
@@ -266,9 +304,36 @@ class ProfileScreen:
         char_label = self.font_medium.render("Choisir personnage:", True, WHITE)
         self.screen.blit(char_label, (self.panel.rect.x + 50, self.panel.rect.y + 120))
         
-        # Draw character buttons
-        for btn in self.character_buttons:
+        # Draw character buttons with lock overlay for locked characters
+        for i, btn in enumerate(self.character_buttons):
             btn.draw(self.screen)
+            
+            # Draw lock icon if character is locked
+            if not self._is_character_unlocked(i):
+                # Darken the button area
+                darken = pygame.Surface((btn.rect.width, btn.rect.height), pygame.SRCALPHA)
+                darken.fill((0, 0, 0, 160))
+                self.screen.blit(darken, btn.rect.topleft)
+                
+                # Draw lock icon in center
+                lock_rect = self.lock_icon.get_rect(center=btn.rect.center)
+                self.screen.blit(self.lock_icon, lock_rect)
+                
+                # Draw "LOCKED" text below
+                locked_text = self.font_small.render("VERROUILLE", True, LIGHT_GRAY)
+                locked_rect = locked_text.get_rect(center=(btn.rect.centerx, btn.rect.bottom + 10))
+                self.screen.blit(locked_text, locked_rect)
+        
+        # Draw unlock hint for Phantom Striker
+        if not self._is_character_unlocked(7):
+            hint_text = self.font_small.render(
+                "Debloquer: Niveau 3 + 5000 pts", True, ORANGE
+            )
+            hint_rect = hint_text.get_rect(
+                center=(self.character_buttons[7].rect.centerx, 
+                        self.character_buttons[7].rect.bottom + 28)
+            )
+            self.screen.blit(hint_text, hint_rect)
         
         # Draw input fields (only if not guest)
         if not self.auth.guest_mode:

@@ -144,6 +144,40 @@ def _entry_to_dict(entry: LeaderboardEntry) -> dict:
     }
 
 
+@router.post("/players/{player_id}/unlock-character", response=PlayerCharacterUnlockSchema, tags=["Players"], auth=jwt_auth)
+def unlock_character(request, player_id: int, character_idx: int):
+    """Unlock a character for a player (requires authentication — own player only)"""
+    from ninja.responses import Response
+    player = get_object_or_404(Player, id=player_id)
+    if player.user != request.auth:
+        return Response({"error": "You can only unlock characters for your own player."}, status=403)
+    
+    success = player.unlock_character(character_idx)
+    if success:
+        return {"character_idx": character_idx, "success": True, "message": "Character unlocked successfully"}
+    else:
+        return {"character_idx": character_idx, "success": False, "message": "Character already unlocked"}
+
+
+@router.post("/players/{player_id}/grant-achievement", response=PlayerAchievementGrantSchema, tags=["Players"], auth=jwt_auth)
+def grant_achievement(request, player_id: int, achievement_name: str):
+    """Grant an achievement to a player (requires authentication — own player only)"""
+    from ninja.responses import Response
+    from .models import Achievement, PlayerAchievement
+    player = get_object_or_404(Player, id=player_id)
+    if player.user != request.auth:
+        return Response({"error": "You can only grant achievements for your own player."}, status=403)
+    
+    achievement = get_object_or_404(Achievement, name=achievement_name)
+    
+    # Check if already earned
+    if PlayerAchievement.objects.filter(player=player, achievement=achievement).exists():
+        return {"achievement_name": achievement_name, "success": False, "message": "Achievement already earned"}
+    
+    PlayerAchievement.objects.create(player=player, achievement=achievement)
+    return {"achievement_name": achievement_name, "success": True, "message": "Achievement granted successfully"}
+
+
 # Player endpoints (protected)
 @router.get("/players", response=List[PlayerSchema], tags=["Players"], auth=jwt_auth)
 def list_players(request, limit: int = 50, offset: int = 0):
