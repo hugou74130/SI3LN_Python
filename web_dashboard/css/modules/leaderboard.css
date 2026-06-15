@@ -1,0 +1,354 @@
+/* leaderboard-widgets.css — Styles for leaderboard dashboard widgets */
+/* ================================================================ */
+
+/* ── Card override for leaderboard widgets ── */
+.leaderboard-card {
+    min-height: 200px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.leaderboard-card .lb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(0, 255, 136, 0.08);
+    border-bottom: 1px solid rgba(0, 255, 136, 0.2);
+}
+
+.leaderboard-card .lb-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #00ff88;
+    font-family: 'Orbitron', sans-serif;
+}
+
+.leaderboard-card .lb-live-indicator {
+    font-size: 0.75rem;
+    color: #ff4444;
+    animation: pulse-live 2s infinite;
+}
+
+@keyframes pulse-live {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ── Global Top 10 ── */
+.lb-list {
+    padding: 8px 0;
+}
+
+.lb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.85rem;
+    transition: background 0.2s;
+}
+
+.lb-row:hover {
+    background: rgba(0, 255, 136, 0.05);
+}
+
+.lb-top3 {
+    background: rgba(255, 215, 0, 0.08);
+}
+
+.lb-medal {
+    font-size: 1.2rem;
+    width: 28px;
+    text-align: center;
+}
+
+.lb-rank {
+    font-size: 0.8rem;
+    color: #888;
+    width: 28px;
+    text-align: center;
+}
+
+.lb-name {
+    flex: 1;
+    color: #fff;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lb-score {
+    color: #00ff88;
+    font-weight: 600;
+    font-family: 'Orbitron', monospace;
+}
+
+.lb-meta {
+    font-size: 0.7rem;
+    color: #888;
+    margin-left: 4px;
+}
+
+.lb-pb {
+    display: inline-block;
+    background: #ff8800;
+    color: #000;
+    font-size: 0.6rem;
+    font-weight: bold;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+}
+
+.lb-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.7rem;
+    color: #666;
+}
+
+.lb-refresh-btn {
+    background: transparent;
+    border: 1px solid rgba(0,255,136,0.3);
+    color: #00ff88;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    transition: all 0.2s;
+}
+
+.lb-refresh-btn:hover {
+    background: rgba(0,255,136,0.1);
+}
+
+/* ── Personal Best Tracker ── */
+.lb-chart {
+    padding: 12px 16px;
+    display: flex;
+    justify-content: center;
+}
+
+.lb-sparkline {
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+}
+
+.lb-pb-list {
+    padding: 0 16px 12px;
+}
+
+.lb-pb-list h4 {
+    margin: 0 0 8px;
+    font-size: 0.8rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.lb-pb-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-size: 0.8rem;
+}
+
+.lb-pb-score {
+    color: #00ff88;
+    font-weight: 600;
+    font-family: 'Orbitron', monospace;
+}
+
+.lb-pb-meta {
+    color: #888;
+    font-size: 0.7rem;
+}
+
+.lb-pb-date {
+    color: #666;
+    font-size: 0.7rem;
+}
+
+.lb-stat {
+    font-size: 0.75rem;
+    color: #00ff88;
+    font-family: 'Orbitron', monospace;
+}
+
+/* ── World Records ── */
+.lb-wr-list {
+    padding: 8px 0;
+}
+
+.lb-wr-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.85rem;
+}
+
+.lb-wr-world {
+    color: #fff;
+    font-weight: 500;
+    flex: 1;
+}
+
+.lb-wr-holder {
+    color: #ccc;
+    font-size: 0.75rem;
+    margin-right: 8px;
+}
+
+.lb-wr-score {
+    color: #ffd700;
+    font-weight: 600;
+    font-family: 'Orbitron', monospace;
+}
+
+.lb-wr-date {
+    color: #666;
+    font-size: 0.7rem;
+    margin-left: 8px;
+}
+
+/* ── Rival Comparison ── */
+.lb-rival-picker {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.lb-rival-input {
+    flex: 1;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.lb-rival-input:focus {
+    outline: none;
+    border-color: #00ff88;
+}
+
+.lb-rival-btn {
+    background: #00ff88;
+    color: #000;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.lb-rival-btn:hover {
+    background: #00cc6a;
+}
+
+.lb-rival-result {
+    padding: 0 16px 12px;
+}
+
+.lb-rival-table {
+    width: 100%;
+}
+
+.lb-rival-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 2px solid rgba(0,255,136,0.2);
+    margin-bottom: 8px;
+}
+
+.lb-rival-name {
+    font-weight: 600;
+    color: #fff;
+    font-size: 0.9rem;
+    flex: 1;
+    text-align: center;
+}
+
+.lb-rival-vs {
+    color: #00ff88;
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0 12px;
+}
+
+.lb-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-size: 0.85rem;
+}
+
+.lb-stat-label {
+    flex: 1;
+    color: #888;
+}
+
+.lb-stat-a, .lb-stat-b {
+    width: 80px;
+    text-align: center;
+    color: #ccc;
+    font-family: 'Orbitron', monospace;
+}
+
+.lb-win {
+    color: #00ff88;
+    font-weight: 700;
+}
+
+.lb-tie {
+    color: #ffd700;
+}
+
+.lb-rival-winner {
+    text-align: center;
+    padding: 12px 0;
+    color: #ffd700;
+    font-size: 0.9rem;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    margin-top: 8px;
+}
+
+/* ── Common helpers ── */
+.lb-empty {
+    color: #888;
+    text-align: center;
+    padding: 24px 16px;
+    font-size: 0.85rem;
+}
+
+.lb-error {
+    color: #ff4444;
+    text-align: center;
+    padding: 24px 16px;
+    font-size: 0.85rem;
+}
+
+.lb-loading {
+    color: #888;
+    text-align: center;
+    padding: 16px;
+    font-size: 0.85rem;
+}

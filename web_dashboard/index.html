@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="css/modules/help.css?v=3">
     <link rel="stylesheet" href="css/language-switcher.css?v=3">
     <link rel="stylesheet" href="css/responsive.css?v=3">
-    <link rel="stylesheet" href="css/mobile.css?v=3">
+    <link rel="stylesheet" href="css/modules/leaderboard.css?v=3">
 </head>
 <body>
     <!-- Menu latéral gauche avec triangle PLAY -->
@@ -135,13 +135,33 @@
                             <a href="#" class="game-link" id="playGameLink" data-i18n="home.playNow">Play now →</a>
                         </div>
                         
-                        <!-- Carte 2 - Leaderboard -->
+                        <!-- Carte 2 - Leaderboard (legacy) -->
                         <div class="card">
                             <h2 data-i18n="home.leaderboard">🏆 Leaderboard</h2>
                             <div id="leaderboard" data-i18n="home.loading">Loading...</div>
                         </div>
                         
-                        <!-- Carte 3 - Player Profile -->
+                        <!-- Carte 3 - Global Top 10 (live) -->
+                        <div class="card leaderboard-card">
+                            <div id="leaderboard-global-top10" data-i18n="home.loading">Loading...</div>
+                        </div>
+                        
+                        <!-- Carte 4 - Personal Best Tracker -->
+                        <div class="card leaderboard-card">
+                            <div id="leaderboard-personal-best" data-i18n="home.loading">Loading...</div>
+                        </div>
+                        
+                        <!-- Carte 5 - World Records -->
+                        <div class="card leaderboard-card">
+                            <div id="leaderboard-world-records" data-i18n="home.loading">Loading...</div>
+                        </div>
+                        
+                        <!-- Carte 6 - Rival Comparison -->
+                        <div class="card leaderboard-card">
+                            <div id="leaderboard-rival-comparison" data-i18n="home.loading">Loading...</div>
+                        </div>
+                        
+                        <!-- Carte 7 - Player Profile -->
                         <div class="card">
                             <h2 data-i18n="home.playerProfile">👤 Player Profile</h2>
                             <div id="profile">Please log in</div>
@@ -686,6 +706,7 @@
     <script src="js/modules/auth.js?v=4"></script>
     <script src="js/modules/help.js?v=4"></script>
     <script src="js/modules/mobile.js?v=4"></script>
+    <script src="js/modules/leaderboard.js?v=4"></script>
 
     <!-- Main App -->
     <script src="js/app-refactored.js?v=4"></script>

@@ -55,6 +55,10 @@ class AppManager {
         // Initialize help page
         this.helpManager.initHelpHandlers();
         
+        // Initialize leaderboard widgets
+        this.leaderboardManager = new LeaderboardManager(window.api);
+        this.leaderboardManager.init();
+        
         // Initialize login page
         this.authManager.initLoginPage();
         

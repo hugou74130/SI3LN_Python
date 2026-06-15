@@ -97,7 +97,44 @@ class ApiFacadeService {
         return response.json();
     }
 
-    // ── Leaderboard ───────────────────────────────────────────────
+    // ── Leaderboard (new persistent system) ───────────────────────
+
+    async getLeaderboardGlobal(worldId = null, limit = 10) {
+        const params = new URLSearchParams();
+        if (worldId) params.append('world', worldId);
+        params.append('limit', limit);
+        const data = await this._raw.request(`/game/leaderboard/global?${params}`);
+        return data?.entries || [];
+    }
+
+    async getPlayerLeaderboardHistory(playerId = null) {
+        const pid = playerId || this.getLocalPlayerId();
+        if (!pid) throw new Error('Not authenticated');
+        return this._sanitize(await this._raw.request(`/game/leaderboard/player/${pid}`));
+    }
+
+    async getLeaderboardNearby(playerId = null, radius = 5) {
+        const pid = playerId || this.getLocalPlayerId();
+        if (!pid) throw new Error('Not authenticated');
+        return this._sanitize(await this._raw.request(`/game/leaderboard/nearby?player=${pid}&radius=${radius}`));
+    }
+
+    async submitLeaderboard(data) {
+        return this._sanitize(await this._raw.request('/game/leaderboard/submit', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }));
+    }
+
+    async getWorldRecords() {
+        return this._raw.request('/game/leaderboard/world-records');
+    }
+
+    async getRivalComparison(playerA, playerB) {
+        return this._raw.request(`/game/leaderboard/rival-comparison?player_a=${playerA}&player_b=${playerB}`);
+    }
+
+    // ── Legacy Leaderboard ───────────────────────────────────────
 
     async getLeaderboard(limit = 10) {
         const data = await this._raw.getLeaderboard(limit);

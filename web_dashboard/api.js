@@ -124,6 +124,36 @@ class APIClient {
         return this.request(`/game/leaderboard?limit=${limit}`);
     }
 
+    async getLeaderboardGlobal(worldId = null, limit = 10) {
+        const params = new URLSearchParams();
+        if (worldId) params.append('world', worldId);
+        params.append('limit', limit);
+        return this.request(`/game/leaderboard/global?${params}`);
+    }
+
+    async getPlayerLeaderboardHistory(playerId) {
+        return this.request(`/game/leaderboard/player/${playerId}`);
+    }
+
+    async getLeaderboardNearby(playerId, radius = 5) {
+        return this.request(`/game/leaderboard/nearby?player=${playerId}&radius=${radius}`);
+    }
+
+    async submitLeaderboard(data) {
+        return this.request('/game/leaderboard/submit', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async getWorldRecords() {
+        return this.request('/game/leaderboard/world-records');
+    }
+
+    async getRivalComparison(playerA, playerB) {
+        return this.request(`/game/leaderboard/rival-comparison?player_a=${playerA}&player_b=${playerB}`);
+    }
+
     async getCurrentUser() {
         return this.request('/auth/me');
     }
