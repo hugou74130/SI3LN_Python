@@ -1948,17 +1948,29 @@ class Game:
             shield_label = self.font_tiny.render("SHIELD", True, LIGHT_BLUE)
             self.screen.blit(shield_label, (bar_x + bar_w + 6, shield_bar_y - 1))
 
-        # Afficher les bonus actifs
+        # ── Active bonus indicators ───────────────────────────────────────
         bonus_x = self.screen_width - 400
         if self.active_bonuses["shield"]["active"]:
             shield_text = self.font_tiny.render("BOUCLIER", True, BLUE)
             self.screen.blit(shield_text, (bonus_x, 15))
-            bonus_x += 80
+            bonus_x += 90
 
         if self.active_bonuses["mega_shot"]["active"]:
-            mega_text = self.font_tiny.render("MEGA TIR", True, YELLOW)
-            self.screen.blit(mega_text, (bonus_x, 15))
-            bonus_x += 80
+            # Mega shot duration bar
+            mega_ratio = 1.0
+            elapsed = pygame.time.get_ticks() - self.active_bonuses["mega_shot"].get("timer", 0)
+            duration = self.active_bonuses["mega_shot"].get("duration", 5000)
+            if duration > 0:
+                mega_ratio = max(0.0, 1.0 - elapsed / duration)
+            bar_w, bar_h = 70, 10
+            pygame.draw.rect(self.screen, DARK_GRAY, (bonus_x, 18, bar_w, bar_h), border_radius=3)
+            fill_w = int(bar_w * mega_ratio)
+            if fill_w > 0:
+                pygame.draw.rect(self.screen, YELLOW, (bonus_x, 18, fill_w, bar_h), border_radius=3)
+            pygame.draw.rect(self.screen, ORANGE, (bonus_x, 18, bar_w, bar_h), 1, border_radius=3)
+            mega_text = self.font_tiny.render("MEGA", True, YELLOW)
+            self.screen.blit(mega_text, (bonus_x, 2))
+            bonus_x += 90
         
         # Phase Dash cooldown indicator (Phantom Striker only)
         if self.player and self.player.is_phantom:
