@@ -16,6 +16,7 @@ from level_selector import LevelSelector
 from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack, Waypoint, ExitPortal
 from ui_components import Button, InputField, ProfileIcon, Panel, PopUp
 from api_client import api_client  # REST-API integration (scores / sessions)
+from keybinding import KeybindingManager, KeybindingScreen
 
 
 class Game:
@@ -57,6 +58,8 @@ class Game:
         # Systems
         self.auth = AuthSystem()
         self.score_manager = ScoreManager()
+        self.keybinding = KeybindingManager(DATA_DIR)
+        self.keybinding_screen = KeybindingScreen(self, self.keybinding)
 
         # ── API integration ───────────────────────────────────────────
         # If a JWT token is available (set by the web dashboard / env
@@ -239,17 +242,21 @@ class Game:
                                    self.font_medium, bg_color=None, text_color=WHITE, border_color=WHITE)
 
         if self.rm.is_portrait:
-            # Portrait: stack the three utility buttons vertically at bottom-centre
-            self.btn_help = Button(cx, REF_HEIGHT - 175,
+            # Portrait: stack the utility buttons vertically at bottom-centre
+            self.btn_help = Button(cx, REF_HEIGHT - 235,
                                   150, 50, "AIDE", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_controls = Button(cx, REF_HEIGHT - 175,
+                                       150, 50, "CONTROLES", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
             self.btn_game = Button(cx, REF_HEIGHT - 115,
                                   150, 50, "GAME", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
             self.btn_quit = Button(cx, REF_HEIGHT - 55,
                                   150, 50, "QUITTER", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
         else:
-            # Landscape: original bottom-right corner layout
+            # Landscape: original bottom-right corner layout + controls bottom-left
             self.btn_help = Button(REF_WIDTH - 100, REF_HEIGHT - 70,
                                   150, 50, "AIDE", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_controls = Button(100, REF_HEIGHT - 70,
+                                       150, 50, "CONTROLES", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
             self.btn_game = Button(REF_WIDTH - 100, REF_HEIGHT - 130,
                                   150, 50, "GAME", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
             self.btn_quit = Button(REF_WIDTH - 100, REF_HEIGHT - 190,
@@ -424,11 +431,11 @@ class Game:
             elif event.type == pygame.MOUSEMOTION and self.touch_held:
                 self.touch_move_pos = event.pos
             
-            # Handle fullscreen toggle (F11)
+            # Handle fullscreen toggle and global back key
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_F11:
+                if self.keybinding.is_action_key(event.key, "fullscreen"):
                     self.toggle_fullscreen()
-                elif event.key == pygame.K_ESCAPE:
+                elif self.keybinding.is_action_key(event.key, "menu_back"):
                     if self.profile_screen.active:
                         self.profile_screen.close()
                     elif self.state == STATE_GAMEPLAY:
@@ -438,6 +445,11 @@ class Game:
             if self.profile_screen.active:
                 if self.profile_screen.handle_event(self._transform_event(event)):
                     self.update_profile_icon()
+                continue
+
+            # Keybinding settings screen
+            if self.keybinding_screen.active:
+                self.keybinding_screen.handle_event(event)
                 continue
 
             # Level selector
@@ -497,12 +509,15 @@ class Game:
                 self.level_selector.open()
                 self.state = STATE_LEVEL_SELECT
             
+            elif self.btn_controls.is_clicked(pos):
+                self.keybinding_screen.open()
+
             elif self.btn_help.is_clicked(pos):
                 self.popup_help.open()
-            
+
             elif self.btn_game.is_clicked(pos):
                 self.popup_game.open()
-            
+
             elif self.btn_quit.is_clicked(pos):
                 self.running = False
             
@@ -548,9 +563,9 @@ class Game:
                 self.level_selector.open()
                 self.state = STATE_LEVEL_SELECT
         
-        # ESC to go back
+        # Back key to return to main menu
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
+            if self.keybinding.is_action_key(event.key, "menu_back"):
                 self.state = STATE_MAIN_MENU
                 self.login_username.clear()
                 self.login_password.clear()
@@ -595,22 +610,22 @@ class Game:
                 self.register_password.clear()
                 self.register_confirm.clear()
         
-        # ESC to go back
+        # Back key to return to login
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
+            if self.keybinding.is_action_key(event.key, "menu_back"):
                 self.state = STATE_LOGIN
     
     def handle_gameplay_events(self, event):
         """Handle gameplay events"""
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
+            if self.keybinding.is_action_key(event.key, "shoot"):
                 self.shoot_player_bullet()
-            
-            # Contrôles des bonus
-            if event.key == pygame.K_b and self.active_bonuses["shield"]["active"]:
+
+            # Bonus controls (keybinding-aware)
+            if self.keybinding.is_action_key(event.key, "shield") and self.active_bonuses["shield"]["active"]:
                 self.activate_shield()
-            
-            if event.key == pygame.K_LSHIFT and self.active_bonuses["mega_shot"]["active"]:
+
+            if self.keybinding.is_action_key(event.key, "mega_shot") and self.active_bonuses["mega_shot"]["active"]:
                 self.mega_shot()
         
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -873,8 +888,9 @@ class Game:
                             player_img,
                             self.screen_width,
                             self.screen_height,
-                            character_idx=self.selected_character)
-        
+                            character_idx=self.selected_character,
+                            keybinding_manager=self.keybinding)
+
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
         self.spawn_enemies()
@@ -943,7 +959,8 @@ class Game:
                             player_img,
                             self.screen_width,
                             self.screen_height,
-                            character_idx=self.selected_character)
+                            character_idx=self.selected_character,
+                            keybinding_manager=self.keybinding)
 
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
@@ -1100,13 +1117,13 @@ class Game:
     def handle_tutorial_events(self, event):
         """Handle tutorial input events"""
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
+            if self.keybinding.is_action_key(event.key, "shoot"):
                 self.shoot_player_bullet()
-            if event.key == pygame.K_b and self.active_bonuses["shield"]["active"]:
+            if self.keybinding.is_action_key(event.key, "shield") and self.active_bonuses["shield"]["active"]:
                 self.activate_shield()
-            if event.key == pygame.K_LSHIFT and self.active_bonuses["mega_shot"]["active"]:
+            if self.keybinding.is_action_key(event.key, "mega_shot") and self.active_bonuses["mega_shot"]["active"]:
                 self.mega_shot()
-            if event.key == pygame.K_ESCAPE:
+            if self.keybinding.is_action_key(event.key, "menu_back"):
                 self.state = STATE_LEVEL_SELECT
                 self.level_selector.open()
         
@@ -1389,6 +1406,7 @@ class Game:
         if self.state == STATE_MAIN_MENU:
             self.btn_start.update(mouse_pos)
             self.btn_continue.update(mouse_pos)
+            self.btn_controls.update(mouse_pos)
             self.btn_help.update(mouse_pos)
             self.btn_game.update(mouse_pos)
             self.btn_quit.update(mouse_pos)
@@ -1608,7 +1626,11 @@ class Game:
         # Draw profile screen
         if self.profile_screen.active:
             self.profile_screen.draw()
-        
+
+        # Draw keybinding settings screen
+        if self.keybinding_screen.active:
+            self.keybinding_screen.draw(self.screen)
+
         # Draw message
         if self.message:
             msg_surf = self.font_small.render(self.message, True, self.message_color)
@@ -1641,6 +1663,7 @@ class Game:
         
         self.btn_start.draw(self.screen)
         self.btn_continue.draw(self.screen)
+        self.btn_controls.draw(self.screen)
         self.btn_help.draw(self.screen)
         self.btn_game.draw(self.screen)
         self.btn_quit.draw(self.screen)

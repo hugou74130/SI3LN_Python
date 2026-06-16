@@ -9,7 +9,7 @@ from constants import *
 
 class Player(pygame.sprite.Sprite):
     """Player entity with Phase Dash ability support"""
-    def __init__(self, x, y, image, screen_width, screen_height, character_idx=0):
+    def __init__(self, x, y, image, screen_width, screen_height, character_idx=0, keybinding_manager=None):
         super().__init__()
         self.image = image
         self.original_image = image
@@ -18,6 +18,7 @@ class Player(pygame.sprite.Sprite):
         self.screen_height = screen_height
         self.speed = PLAYER_SPEED
         self.character_idx = character_idx
+        self.keybinding = keybinding_manager
         
         # Play area boundaries (keep player in visible area)
         self.min_x = 0
@@ -65,18 +66,33 @@ class Player(pygame.sprite.Sprite):
         """Update player based on key presses"""
         dx = 0
         dy = 0
-        
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            dx = -1
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            dx = 1
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
-            dy = -1
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            dy = 1
-        
+
+        if self.keybinding is not None:
+            if self.keybinding.is_pressed(keys, "move_left"):
+                dx = -1
+            if self.keybinding.is_pressed(keys, "move_right"):
+                dx = 1
+            if self.keybinding.is_pressed(keys, "move_up"):
+                dy = -1
+            if self.keybinding.is_pressed(keys, "move_down"):
+                dy = 1
+        else:
+            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                dx = -1
+            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                dx = 1
+            if keys[pygame.K_UP] or keys[pygame.K_w]:
+                dy = -1
+            if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                dy = 1
+
         # Phase Dash activation (Phantom Striker only)
-        if self.is_phantom and (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]):
+        dash_pressed = False
+        if self.keybinding is not None:
+            dash_pressed = self.keybinding.is_pressed(keys, "phase_dash")
+        else:
+            dash_pressed = keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]
+        if self.is_phantom and dash_pressed:
             self.trigger_phase_dash()
         
         # Update Phase Dash state
