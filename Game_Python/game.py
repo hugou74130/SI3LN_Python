@@ -868,11 +868,12 @@ class Game:
         
         # Create player
         player_img = self.players[self.selected_character]
-        self.player = Player(self.screen_width // 2, 
+        self.player = Player(self.screen_width // 2,
                             self.screen_height - 100,
                             player_img,
                             self.screen_width,
-                            self.screen_height)
+                            self.screen_height,
+                            character_idx=self.selected_character)
         
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
