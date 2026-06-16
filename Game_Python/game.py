@@ -59,7 +59,6 @@ class Game:
         self.auth = AuthSystem()
         self.score_manager = ScoreManager()
         self.keybinding = KeybindingManager(DATA_DIR)
-        self.keybinding_screen = KeybindingScreen(self, self.keybinding)
 
         # ── API integration ───────────────────────────────────────────
         # If a JWT token is available (set by the web dashboard / env
@@ -103,9 +102,12 @@ class Game:
         # Initialize screens
         self.profile_screen = ProfileScreen(self.screen, self.auth, self.players)
         self.level_selector = LevelSelector(self.screen, WORLDS)
-        
+
         # Create UI
         self.create_ui()
+
+        # Keybinding settings screen (needs fonts/UI ready)
+        self.keybinding_screen = KeybindingScreen(self, self.keybinding)
         
         # Game entities
         self.player = None
