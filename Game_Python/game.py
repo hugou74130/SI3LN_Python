@@ -847,7 +847,8 @@ class Game:
             "Desert": ("sprites/player/pb_desert.png", "sprites/ennemy/eb_desert.png"),
             "Forest": ("sprites/player/pb_forest.png", "sprites/ennemy/eb_forest.png"),
             "Marine": ("sprites/player/pb_marine.png", "sprites/ennemy/eb_marine.png"),
-            "Apocalyptic": ("sprites/player/pb_apocaliptyc.png", "sprites/ennemy/eb_apocaliptyc.png")
+            "Apocalyptic": ("sprites/player/pb_apocaliptyc.png", "sprites/ennemy/eb_apocaliptyc.png"),
+            "BootCamp": ("sprites/player/pb_space.png", "sprites/ennemy/eb_space.png")
         }
         
         if self.current_world in explosion_file_map:
@@ -1214,12 +1215,15 @@ class Game:
         self.player_bullets.draw(self.screen)
         self.explosions.draw(self.screen)
         
-        # Objective text at top
+        # Objective text at top (with proper transparent background)
         obj_text = self._get_tutorial_objective_text()
         obj_surf = self.font_small.render(obj_text, True, HOLO_BLUE)
         obj_rect = obj_surf.get_rect(center=(self.screen_width // 2, 90))
-        bg_rect = obj_rect.inflate(20, 10)
-        pygame.draw.rect(self.screen, (0, 0, 0, 180), bg_rect, border_radius=5)
+        bg_rect = obj_rect.inflate(24, 14)
+        bg_surf = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surf.fill((0, 10, 20, 180))
+        pygame.draw.rect(bg_surf, HOLO_CYAN, bg_surf.get_rect(), 2, border_radius=5)
+        self.screen.blit(bg_surf, bg_rect.topleft)
         self.screen.blit(obj_surf, obj_rect)
         
         # Skip button
