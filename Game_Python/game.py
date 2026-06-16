@@ -17,6 +17,7 @@ from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack, Way
 from ui_components import Button, InputField, ProfileIcon, Panel, PopUp
 from api_client import api_client  # REST-API integration (scores / sessions)
 from keybinding import KeybindingManager, KeybindingScreen
+from sound_manager import SoundManager
 
 
 class Game:
@@ -59,6 +60,7 @@ class Game:
         self.auth = AuthSystem()
         self.score_manager = ScoreManager()
         self.keybinding = KeybindingManager(DATA_DIR)
+        self.sound = SoundManager(enabled=True, volume=0.4)
 
         # ── API integration ───────────────────────────────────────────
         # If a JWT token is available (set by the web dashboard / env
@@ -790,6 +792,7 @@ class Game:
 
     def trigger_game_over(self):
         """Centralised game-over handler: save score locally and set state."""
+        self.sound.play("game_over")
         self.player = None
         username = self.auth.current_user or "Guest"
         if username != "Guest":
@@ -892,7 +895,8 @@ class Game:
                             self.screen_width,
                             self.screen_height,
                             character_idx=self.selected_character,
-                            keybinding_manager=self.keybinding)
+                            keybinding_manager=self.keybinding,
+                            sound_manager=self.sound)
 
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
@@ -963,7 +967,8 @@ class Game:
                             self.screen_width,
                             self.screen_height,
                             character_idx=self.selected_character,
-                            keybinding_manager=self.keybinding)
+                            keybinding_manager=self.keybinding,
+                            sound_manager=self.sound)
 
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
@@ -1287,6 +1292,7 @@ class Game:
                            True,
                            self.screen_height)
             self.player_bullets.add(bullet)
+            self.sound.play("shoot")
     
     def activate_shield(self):
         """Active le bouclier du joueur"""
@@ -1294,6 +1300,7 @@ class Game:
             self.active_bonuses["shield"]["active"] = False
             self.player.activate_shield()
             self.show_message("Bouclier activé!", BLUE)
+            self.sound.play("shield")
     
     def mega_shot(self):
         """Tir spécial plus puissant"""
@@ -1308,6 +1315,7 @@ class Game:
                 self.player_bullets.add(bullet)
             self.active_bonuses["mega_shot"]["active"] = False
             self.show_message("Mega tir activé!", YELLOW)
+            self.sound.play("mega")
     
     def spawn_bonus(self, x, y):
         """Fait tomber un bonus aléatoire"""
@@ -1324,6 +1332,7 @@ class Game:
             self.active_bonuses[bonus_type]["active"] = True
             self.active_bonuses[bonus_type]["timer"] = pygame.time.get_ticks()
             self.show_message(f"{bonus_type.title()} activé!", BLUE if bonus_type == "shield" else YELLOW)
+        self.sound.play("bonus")
     
     def trigger_world_special(self):
         """Déclenche une attaque spéciale selon le monde"""
@@ -1497,6 +1506,8 @@ class Game:
                             self.screen_height)
                 self.enemy_bullets.add(bullet)
                 enemy.last_shot = current_time
+                if random.random() < 0.3:
+                    self.sound.play("enemy_shoot")
         
         # Update explosions
         self.explosions.update()
@@ -1528,6 +1539,7 @@ class Game:
         # Check win condition
         if len(self.enemies) == 0:
             self.state = STATE_LEVEL_WIN
+            self.sound.play("level_win")
             if self.auth.current_user:
                 self.auth.update_user_data(
                     high_score=max(self.current_score, 
@@ -1556,9 +1568,10 @@ class Game:
                 self.enemies_killed += len(hits)
                 self.current_score += 10 * self.current_level
                 for enemy in hits:
-                    explosion = Explosion(enemy.rect.centerx, enemy.rect.centery, 
+                    explosion = Explosion(enemy.rect.centerx, enemy.rect.centery,
                                         explosion_img=self.enemy_explosion_img)
                     self.explosions.add(explosion)
+                    self.sound.play("explosion")
                     # Chance de faire tomber un bonus
                     if random.random() < 0.2:  # 20% de chance
                         self.spawn_bonus(enemy.rect.centerx, enemy.rect.centery)
@@ -1569,11 +1582,13 @@ class Game:
             if hits:
                 damage = self.player.take_damage(len(hits))
                 self.lives -= damage
+                self.sound.play("hit" if damage > 0 else "hit")
                 if self.lives <= 0:
                     explosion = Explosion(self.player.rect.centerx,
                                         self.player.rect.centery, RED,
                                         explosion_img=self.player_explosion_img)
                     self.explosions.add(explosion)
+                    self.sound.play("player_explosion")
                     self.trigger_game_over()
 
         # Enemies reach player (respect Phase Dash and Shield)
@@ -1582,7 +1597,9 @@ class Game:
             if hits:
                 damage = self.player.take_damage(len(hits) * 2)
                 self.lives -= damage
+                self.sound.play("hit" if damage > 0 else "hit")
                 if self.lives <= 0:
+                    self.sound.play("player_explosion")
                     self.trigger_game_over()
 
         # Player collects bonuses
@@ -1597,8 +1614,10 @@ class Game:
                 if pygame.sprite.collide_rect(self.player, attack):
                     damage = self.player.take_damage(attack.damage)
                     self.lives -= damage
+                    self.sound.play("hit" if damage > 0 else "hit")
                     attack.kill()
                     if self.lives <= 0:
+                        self.sound.play("player_explosion")
                         self.trigger_game_over()
     
     def draw(self):

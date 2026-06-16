@@ -9,7 +9,7 @@ from constants import *
 
 class Player(pygame.sprite.Sprite):
     """Player entity with Phase Dash ability support"""
-    def __init__(self, x, y, image, screen_width, screen_height, character_idx=0, keybinding_manager=None):
+    def __init__(self, x, y, image, screen_width, screen_height, character_idx=0, keybinding_manager=None, sound_manager=None):
         super().__init__()
         self.image = image
         self.original_image = image
@@ -19,6 +19,7 @@ class Player(pygame.sprite.Sprite):
         self.speed = PLAYER_SPEED
         self.character_idx = character_idx
         self.keybinding = keybinding_manager
+        self.sound = sound_manager
         
         # Play area boundaries (keep player in visible area)
         self.min_x = 0
@@ -117,6 +118,8 @@ class Player(pygame.sprite.Sprite):
             self.phase_dash["dash_start_time"] = pygame.time.get_ticks()
             # Visual effect: make player semi-transparent
             self._set_transparency(180)
+            if self.sound:
+                self.sound.play("dash")
     
     def _update_phase_dash(self):
         """Update Phase Dash timers and state"""

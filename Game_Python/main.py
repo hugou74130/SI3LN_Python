@@ -3,8 +3,6 @@ import os
 import sys
 import asyncio
 
-os.environ['SDL_AUDIODRIVER'] = 'dummy'
-
 try:
     from game import Game 
 except ImportError:
