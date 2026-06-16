@@ -24,7 +24,14 @@ class Player(pygame.sprite.Sprite):
         self.max_x = screen_width
         self.min_y = screen_height // 2  # Can't go above middle
         self.max_y = screen_height - 20
-        
+
+        # ── Shield / Protection system ────────────────────────────────────
+        self.max_shield = 100
+        self.shield = 0
+        self.shield_active = False
+        self.shield_start_time = 0
+        self.shield_duration_ms = 3000  # 3 seconds of active protection
+
         # ── Phase Dash ability (Phantom Striker - character 7) ───────────
         self.is_phantom = (character_idx == 7)
         self.phase_dash = {
@@ -160,6 +167,42 @@ class Player(pygame.sprite.Sprite):
     def is_invincible(self):
         """Check if player is currently invincible (Phase Dash)"""
         return self.is_phantom and self.phase_dash["invincible"]
+
+    def activate_shield(self):
+        """Activate the protection shield at full charge."""
+        self.shield = self.max_shield
+        self.shield_active = True
+        self.shield_start_time = pygame.time.get_ticks()
+
+    def update_shield(self):
+        """Update shield timer and deactivate when expired."""
+        if not self.shield_active:
+            return
+        elapsed = pygame.time.get_ticks() - self.shield_start_time
+        if elapsed >= self.shield_duration_ms:
+            self.shield_active = False
+            self.shield = 0
+
+    def take_damage(self, damage):
+        """Apply damage to shield first, then to the caller-managed lives.
+        Returns the remaining damage that should be subtracted from lives."""
+        if self.shield_active and self.shield > 0:
+            absorbed = min(self.shield, damage)
+            self.shield -= absorbed
+            damage -= absorbed
+            if self.shield <= 0:
+                self.shield_active = False
+        return damage
+
+    def is_shielded(self):
+        """Return True if the player currently has active shield protection."""
+        return self.shield_active and self.shield > 0
+
+    def get_shield_ratio(self):
+        """Return shield charge ratio from 0.0 to 1.0."""
+        if self.max_shield <= 0:
+            return 0.0
+        return self.shield / self.max_shield
 
     def move_toward(self, target_x, target_y):
         """Move player toward a target point (used by touch controls).

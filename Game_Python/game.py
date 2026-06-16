@@ -1018,6 +1018,7 @@ class Game:
         keys = pygame.key.get_pressed()
         if not self.player_debuffs["rooted"]:
             self.player.update(keys)
+            self.player.update_shield()
             if self.touch_held and self.touch_move_pos and not self.touch_fire_held:
                 self.player.move_toward(*self.touch_move_pos)
         
@@ -1173,11 +1174,23 @@ class Game:
             if self.profile_icon and self.profile_icon.is_clicked(pos):
                 self.profile_screen.open()
     
+    def _draw_shield_effect(self):
+        """Draw a shield bubble around the player when shielded."""
+        if self.player and self.player.is_shielded():
+            center = self.player.rect.center
+            radius = max(self.player.rect.width, self.player.rect.height) // 2 + 8
+            pulse = (pygame.time.get_ticks() % 500) / 500.0
+            alpha = int(80 + 60 * pulse)
+            shield_surf = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(shield_surf, (*LIGHT_BLUE, alpha), (radius + 2, radius + 2), radius, 3)
+            self.screen.blit(shield_surf, (center[0] - radius - 2, center[1] - radius - 2))
+
     def draw_tutorial(self):
         """Draw the tutorial gameplay screen"""
         self.screen.blit(self.game_bg, (0, 0))
         
         if self.player:
+            self._draw_shield_effect()
             self.screen.blit(self.player.image, self.player.rect)
         
         self.tutorial_sprites.draw(self.screen)
@@ -1254,10 +1267,10 @@ class Game:
     
     def activate_shield(self):
         """Active le bouclier du joueur"""
-        if self.active_bonuses["shield"]["active"]:
+        if self.active_bonuses["shield"]["active"] and self.player:
             self.active_bonuses["shield"]["active"] = False
+            self.player.activate_shield()
             self.show_message("Bouclier activé!", BLUE)
-            # Ici tu peux ajouter un effet visuel de bouclier
     
     def mega_shot(self):
         """Tir spécial plus puissant"""
@@ -1430,6 +1443,7 @@ class Game:
         if not self.player_debuffs["rooted"]:
             # Keyboard movement
             self.player.update(keys)
+            self.player.update_shield()
             # Touch/mouse drag movement — move player toward held position
             if self.touch_held and self.touch_move_pos and not self.touch_fire_held:
                 self.player.move_toward(*self.touch_move_pos)
@@ -1525,37 +1539,40 @@ class Game:
                     if random.random() < 0.2:  # 20% de chance
                         self.spawn_bonus(enemy.rect.centerx, enemy.rect.centery)
 
-        # Enemy bullets hit player (respect Phase Dash invincibility)
+        # Enemy bullets hit player (respect Phase Dash and Shield)
         if self.player and not self.player.is_invincible():
             hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
             if hits:
-                self.lives -= len(hits)
+                damage = self.player.take_damage(len(hits))
+                self.lives -= damage
                 if self.lives <= 0:
-                    explosion = Explosion(self.player.rect.centerx, 
+                    explosion = Explosion(self.player.rect.centerx,
                                         self.player.rect.centery, RED,
                                         explosion_img=self.player_explosion_img)
                     self.explosions.add(explosion)
                     self.trigger_game_over()
 
-        # Enemies reach player (respect Phase Dash invincibility)
+        # Enemies reach player (respect Phase Dash and Shield)
         if self.player and not self.player.is_invincible():
             hits = pygame.sprite.spritecollide(self.player, self.enemies, True)
             if hits:
-                self.lives -= len(hits) * 2
+                damage = self.player.take_damage(len(hits) * 2)
+                self.lives -= damage
                 if self.lives <= 0:
                     self.trigger_game_over()
-        
+
         # Player collects bonuses
         if self.player:
             collected_bonuses = pygame.sprite.spritecollide(self.player, self.bonuses, True)
             for bonus in collected_bonuses:
                 self.activate_bonus(bonus.bonus_type)
 
-        # Special attacks hit player (respect Phase Dash invincibility)
+        # Special attacks hit player (respect Phase Dash and Shield)
         if self.player and not self.player.is_invincible():
             for attack in self.special_attacks:
                 if pygame.sprite.collide_rect(self.player, attack):
-                    self.lives -= attack.damage
+                    damage = self.player.take_damage(attack.damage)
+                    self.lives -= damage
                     attack.kill()
                     if self.lives <= 0:
                         self.trigger_game_over()
@@ -1680,6 +1697,7 @@ class Game:
                     ghost_surf = self.player.original_image.copy()
                     ghost_surf.set_alpha(ghost["alpha"])
                     self.screen.blit(ghost_surf, ghost["rect"])
+            self._draw_shield_effect()
             self.screen.blit(self.player.image, self.player.rect)
         
         self.enemies.draw(self.screen)
@@ -1865,17 +1883,49 @@ class Game:
         level_rect = level_text.get_rect(center=(self.screen_width // 2, 25))
         self.screen.blit(level_text, level_rect)
         
-        lives_text = self.font_small.render(f"Vies: {self.lives}", True, RED)
-        lives_rect = lives_text.get_rect(right=self.screen_width - 120, centery=25)
-        self.screen.blit(lives_text, lives_rect)
-        
+        # ── Health & Shield bars ──────────────────────────────────────────
+        bar_w, bar_h = 120, 12
+        bar_x = self.screen_width - bar_w - 20
+        bar_y = 12
+        max_lives_for_bar = 10
+        health_ratio = min(1.0, self.lives / max_lives_for_bar)
+
+        # Health bar background
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        # Health bar fill (green → yellow → red)
+        if health_ratio > 0.5:
+            health_color = GREEN
+        elif health_ratio > 0.25:
+            health_color = YELLOW
+        else:
+            health_color = RED
+        fill_w = int(bar_w * health_ratio)
+        if fill_w > 0:
+            pygame.draw.rect(self.screen, health_color, (bar_x, bar_y, fill_w, bar_h), border_radius=3)
+        # Health bar border
+        pygame.draw.rect(self.screen, WHITE, (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+        lives_text = self.font_tiny.render(f"{self.lives}", True, WHITE)
+        self.screen.blit(lives_text, (bar_x + bar_w + 6, bar_y - 1))
+
+        # Shield bar (below health)
+        if self.player and self.player.is_shielded():
+            shield_bar_y = bar_y + bar_h + 4
+            shield_ratio = self.player.get_shield_ratio()
+            pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, shield_bar_y, bar_w, bar_h), border_radius=3)
+            fill_w = int(bar_w * shield_ratio)
+            if fill_w > 0:
+                pygame.draw.rect(self.screen, LIGHT_BLUE, (bar_x, shield_bar_y, fill_w, bar_h), border_radius=3)
+            pygame.draw.rect(self.screen, BLUE, (bar_x, shield_bar_y, bar_w, bar_h), 1, border_radius=3)
+            shield_label = self.font_tiny.render("SHIELD", True, LIGHT_BLUE)
+            self.screen.blit(shield_label, (bar_x + bar_w + 6, shield_bar_y - 1))
+
         # Afficher les bonus actifs
-        bonus_x = self.screen_width - 250
+        bonus_x = self.screen_width - 400
         if self.active_bonuses["shield"]["active"]:
             shield_text = self.font_tiny.render("BOUCLIER", True, BLUE)
             self.screen.blit(shield_text, (bonus_x, 15))
             bonus_x += 80
-        
+
         if self.active_bonuses["mega_shot"]["active"]:
             mega_text = self.font_tiny.render("MEGA TIR", True, YELLOW)
             self.screen.blit(mega_text, (bonus_x, 15))
