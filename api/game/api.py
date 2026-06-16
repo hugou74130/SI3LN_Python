@@ -8,6 +8,8 @@ from .models import Player, GameSession, LeaderboardEntry, LeaderboardRank, Scor
 from .schemas import (
     PlayerSchema,
     PlayerCreateSchema,
+    PlayerCharacterUnlockSchema,
+    PlayerAchievementGrantSchema,
     GameSessionSchema,
     GameSessionCreateSchema,
     GameSessionUpdateSchema,

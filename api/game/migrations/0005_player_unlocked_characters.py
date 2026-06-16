@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('game', '0003_seed_worlds'),
+        ('game', '0004_leaderboard_models'),
     ]
 
     operations = [
