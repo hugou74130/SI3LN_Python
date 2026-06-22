@@ -13,7 +13,7 @@ from auth import AuthSystem
 from scores import ScoreManager
 from profile import ProfileScreen
 from level_selector import LevelSelector
-from entities import Player, Enemy, Bullet, Explosion, Bonus, SpecialAttack, Waypoint, ExitPortal
+from entities import Player, Enemy, Boss, Bullet, Explosion, Bonus, SpecialAttack, Waypoint, ExitPortal
 from ui_components import Button, InputField, ProfileIcon, Panel, PopUp
 from api_client import api_client  # REST-API integration (scores / sessions)
 from keybinding import KeybindingManager, KeybindingScreen
@@ -113,6 +113,7 @@ class Game:
         
         # Game entities
         self.player = None
+        self.boss = None
         self.enemies = pygame.sprite.Group()
         self.player_bullets = pygame.sprite.Group()
         self.enemy_bullets = pygame.sprite.Group()
@@ -140,6 +141,12 @@ class Game:
         # Timers pour les attaques spéciales
         self.last_special_attack_time = 0
         self.special_attack_cooldown = 10000  # 10 secondes entre les attaques
+        
+        # ── Special attack charge bar ──────────────────────────────────────
+        # The special attack charges over time; when full the player can use it.
+        self.special_charge = 0.0        # 0.0 → 1.0
+        self.special_charge_rate = 1.0 / self.special_attack_cooldown  # per ms
+        self.special_ready = False       # True when charge reaches 1.0
         
         # Boot Camp tutorial state
         self.tutorial_objectives = [
@@ -336,6 +343,7 @@ class Game:
             "Tirer: ESPACE",
             "Bouclier: B",
             "Mega Tir: MAJ",
+            "Attaque Speciale: X",
             "Phase Dash: CTRL (Phantom Striker uniquement)",
             "Plein ecran: F11",
             "Retour menu: ESC",
@@ -631,6 +639,10 @@ class Game:
 
             if self.keybinding.is_action_key(event.key, "mega_shot") and self.active_bonuses["mega_shot"]["active"]:
                 self.mega_shot()
+
+            # Special attack (charge-based, press X to unleash)
+            if self.keybinding.is_action_key(event.key, "special_attack"):
+                self.use_special_attack()
         
         if event.type == pygame.MOUSEBUTTONDOWN:
             pos = self.rm.screen_to_ref(*event.pos)
@@ -872,6 +884,7 @@ class Game:
         
         # Clear all entities
         self.enemies.empty()
+        self.boss = None
         self.player_bullets.empty()
         self.enemy_bullets.empty()
         self.explosions.empty()
@@ -897,6 +910,10 @@ class Game:
                             character_idx=self.selected_character,
                             keybinding_manager=self.keybinding,
                             sound_manager=self.sound)
+
+        # Reset special attack charge on new level
+        self.special_charge = 0.0
+        self.special_ready = False
 
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
@@ -969,6 +986,10 @@ class Game:
                             character_idx=self.selected_character,
                             keybinding_manager=self.keybinding,
                             sound_manager=self.sound)
+
+        # Reset special attack charge on new level
+        self.special_charge = 0.0
+        self.special_ready = False
 
         # Create enemies
         print(f"[DEBUG] Spawning enemies...")
@@ -1258,27 +1279,49 @@ class Game:
         self.btn_tutorial_continue.draw(self.screen)
         self.btn_tutorial_replay.draw(self.screen)
     
+    def is_boss_level(self):
+        """Return True if the current level is the final level of the world."""
+        world_data = WORLDS.get(self.current_world)
+        if not world_data:
+            return False
+        return self.current_level >= world_data.get("levels", 1) and not world_data.get("is_tutorial", False)
+
     def spawn_enemies(self):
-        """Spawn enemies for current level"""
+        """Spawn enemies or boss for current level"""
+        # Final level of a world -> boss fight
+        if self.is_boss_level() and self.boss_images.get(self.current_world):
+            boss_img = random.choice(self.boss_images[self.current_world])
+            self.boss = Boss(
+                self.screen_width // 2,
+                120,
+                boss_img,
+                self.screen_width,
+                self.current_level,
+                self.current_world
+            )
+            self.show_message("BOSS APPROCHE!", RED)
+            return
+
+        # Normal level -> enemy grid
         base_rows = 3
         base_cols = 5
         rows = min(base_rows + self.current_level // 2, 6)
         cols = min(base_cols + self.current_level // 2, 9)
-        
+
         enemy_width = 60
         enemy_height = 60
         spacing_x = 20
         spacing_y = 20
-        
+
         total_width = cols * (enemy_width + spacing_x)
         start_x = (self.screen_width - total_width) // 2
         start_y = 80
-        
+
         for row in range(rows):
             for col in range(cols):
                 x = start_x + col * (enemy_width + spacing_x) + enemy_width // 2
                 y = start_y + row * (enemy_height + spacing_y) + enemy_height // 2
-                
+
                 enemy_img = random.choice(self.enemy_images[self.current_world])
                 enemy = Enemy(x, y, enemy_img, self.screen_width, self.current_level)
                 self.enemies.add(enemy)
@@ -1333,6 +1376,18 @@ class Game:
             self.active_bonuses[bonus_type]["timer"] = pygame.time.get_ticks()
             self.show_message(f"{bonus_type.title()} activé!", BLUE if bonus_type == "shield" else YELLOW)
         self.sound.play("bonus")
+    
+    def use_special_attack(self):
+        """Consume the special attack charge and trigger a world special.
+        Returns True if the special was used, False if not ready."""
+        if self.special_ready and self.player:
+            self.special_ready = False
+            self.special_charge = 0.0
+            self.trigger_world_special()
+            self.last_special_attack_time = pygame.time.get_ticks()
+            self.show_message("ATTAQUE SPÉCIALE!", PURPLE)
+            return True
+        return False
     
     def trigger_world_special(self):
         """Déclenche une attaque spéciale selon le monde"""
@@ -1495,7 +1550,7 @@ class Game:
         # Update enemies
         for enemy in self.enemies:
             enemy.update()
-            
+
             # Enemy shooting
             current_time = pygame.time.get_ticks()
             if enemy.can_shoot() and random.random() < enemy.shoot_chance:
@@ -1508,7 +1563,23 @@ class Game:
                 enemy.last_shot = current_time
                 if random.random() < 0.3:
                     self.sound.play("enemy_shoot")
-        
+
+        # Update boss
+        if self.boss:
+            self.boss.update()
+            current_time = pygame.time.get_ticks()
+            if self.boss.can_shoot():
+                # Boss fires a spread of 3 bullets
+                for offset in (-20, 0, 20):
+                    bullet = Bullet(self.boss.rect.centerx + offset,
+                                self.boss.rect.bottom,
+                                self.enemy_bullet_img,
+                                False,
+                                self.screen_height)
+                    self.enemy_bullets.add(bullet)
+                self.boss.last_shot = current_time
+                self.sound.play("enemy_shoot")
+
         # Update explosions
         self.explosions.update()
         
@@ -1526,9 +1597,16 @@ class Game:
             x = random.randint(50, self.screen_width - 50)
             self.spawn_bonus(x, 0)
         
-        # Chance de déclencher une attaque spéciale
+        # ── Special attack charge ─────────────────────────────────────────
+        if not self.special_ready:
+            self.special_charge = min(1.0, self.special_charge + self.special_charge_rate)
+            if self.special_charge >= 1.0:
+                self.special_ready = True
+                self.sound.play("bonus")  # Audible cue when ready
+        
+        # Random world special attack (auto-trigger when cooldown elapsed)
         current_time = pygame.time.get_ticks()
-        if (current_time - self.last_special_attack_time > self.special_attack_cooldown and 
+        if (current_time - self.last_special_attack_time > self.special_attack_cooldown and
             random.random() < 0.01):  # 1% de chance quand le cooldown est écoulé
             self.trigger_world_special()
             self.last_special_attack_time = current_time
@@ -1536,8 +1614,8 @@ class Game:
         # Collision detection
         self.check_collisions()
         
-        # Check win condition
-        if len(self.enemies) == 0:
+        # Check win condition (boss must also be dead)
+        if len(self.enemies) == 0 and self.boss is None:
             self.state = STATE_LEVEL_WIN
             self.sound.play("level_win")
             if self.auth.current_user:
@@ -1562,6 +1640,7 @@ class Game:
         """Check all collisions"""
         # Player bullets hit enemies
         for bullet in self.player_bullets:
+            # Normal enemies
             hits = pygame.sprite.spritecollide(bullet, self.enemies, True)
             if hits:
                 bullet.kill()
@@ -1575,6 +1654,25 @@ class Game:
                     # Chance de faire tomber un bonus
                     if random.random() < 0.2:  # 20% de chance
                         self.spawn_bonus(enemy.rect.centerx, enemy.rect.centery)
+                continue
+
+            # Boss
+            if self.boss and pygame.sprite.collide_rect(bullet, self.boss):
+                bullet.kill()
+                self.current_score += 5
+                boss_died = self.boss.take_damage(1)
+                self.sound.play("hit")
+                if boss_died:
+                    explosion = Explosion(self.boss.rect.centerx, self.boss.rect.centery,
+                                          explosion_img=self.enemy_explosion_img)
+                    self.explosions.add(explosion)
+                    self.sound.play("explosion")
+                    self.current_score += 500 * self.current_level
+                    self.enemies_killed += 1
+                    self.boss = None
+                    self.state = STATE_LEVEL_WIN
+                    self.sound.play("level_win")
+                continue
 
         # Enemy bullets hit player (respect Phase Dash and Shield)
         if self.player and not self.player.is_invincible():
@@ -1601,6 +1699,13 @@ class Game:
                 if self.lives <= 0:
                     self.sound.play("player_explosion")
                     self.trigger_game_over()
+
+        # Boss reaches player (instant death)
+        if self.player and self.boss and not self.player.is_invincible():
+            if pygame.sprite.collide_rect(self.player, self.boss):
+                self.lives = 0
+                self.sound.play("player_explosion")
+                self.trigger_game_over()
 
         # Player collects bonuses
         if self.player:
@@ -1749,6 +1854,8 @@ class Game:
             self.screen.blit(self.player.image, self.player.rect)
         
         self.enemies.draw(self.screen)
+        if self.boss:
+            self.screen.blit(self.boss.image, self.boss.rect)
         self.player_bullets.draw(self.screen)
         self.enemy_bullets.draw(self.screen)
         self.explosions.draw(self.screen)
@@ -1764,32 +1871,6 @@ class Game:
           
         # Draw on-screen touch buttons
         self.draw_touch_controls()
-        """Draw heads-up display"""
-        hud_panel = pygame.Surface((self.screen_width, 50), pygame.SRCALPHA)
-        hud_panel.fill((0, 0, 0, 180))
-        self.screen.blit(hud_panel, (0, 0))
-        
-        score_text = self.font_small.render(f"Score: {self.current_score}", True, WHITE)
-        self.screen.blit(score_text, (20, 15))
-        
-        level_text = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
-        level_rect = level_text.get_rect(center=(self.screen_width // 2, 25))
-        self.screen.blit(level_text, level_rect)
-        
-        lives_text = self.font_small.render(f"Vies: {self.lives}", True, RED)
-        lives_rect = lives_text.get_rect(right=self.screen_width - 120, centery=25)
-        self.screen.blit(lives_text, lives_rect)
-        
-        # Afficher les bonus actifs
-        bonus_x = self.screen_width - 250
-        if self.active_bonuses["shield"]["active"]:
-            shield_text = self.font_tiny.render("BOUCLIER", True, BLUE)
-            self.screen.blit(shield_text, (bonus_x, 15))
-            bonus_x += 80
-        
-        if self.active_bonuses["mega_shot"]["active"]:
-            mega_text = self.font_tiny.render("MEGA TIR", True, YELLOW)
-            self.screen.blit(mega_text, (bonus_x, 15))
     
     def draw_game_over(self):
         """Draw game over screen"""
@@ -1919,28 +2000,92 @@ class Game:
         self.screen.blit(mega_text, mega_rect)
 
     def draw_hud(self):
-        """Draw heads-up display"""
-        hud_panel = pygame.Surface((self.screen_width, 50), pygame.SRCALPHA)
+        """Draw heads-up display — three status bars at top-right."""
+        # ── Semi-transparent HUD background strip ──────────────────────────
+        hud_panel = pygame.Surface((self.screen_width, 70), pygame.SRCALPHA)
         hud_panel.fill((0, 0, 0, 180))
         self.screen.blit(hud_panel, (0, 0))
-        
+
+        # ── Left side: Score & Level ───────────────────────────────────────
         score_text = self.font_small.render(f"Score: {self.current_score}", True, WHITE)
-        self.screen.blit(score_text, (20, 15))
-        
+        self.screen.blit(score_text, (20, 8))
+
         level_text = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
         level_rect = level_text.get_rect(center=(self.screen_width // 2, 25))
         self.screen.blit(level_text, level_rect)
-        
-        # ── Health & Shield bars ──────────────────────────────────────────
-        bar_w, bar_h = 120, 12
-        bar_x = self.screen_width - bar_w - 20
-        bar_y = 12
+
+        # ── Bar configuration ──────────────────────────────────────────────
+        bar_w, bar_h = 140, 14
+        gap = 6
+        # Rightmost bar (special) starts here; bars stack leftward
+        bars_right_edge = self.screen_width - 20
+        bar_x = bars_right_edge - bar_w
+
+        # ── 1) Special attack charge bar (top-most, rightmost) ─────────────
+        special_y = 8
+        special_label = self.font_tiny.render("SPECIAL", True, WHITE)
+        self.screen.blit(special_label, (bar_x - special_label.get_width() - 6, special_y))
+        # Background
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, special_y, bar_w, bar_h), border_radius=3)
+        # Fill
+        charge = min(1.0, max(0.0, self.special_charge))
+        fill_w = int(bar_w * charge)
+        if self.special_ready:
+            # Pulsing gold when ready
+            pulse = (pygame.time.get_ticks() % 400) / 400.0
+            r = int(255)
+            g = int(200 + 55 * pulse)
+            b = int(0 + 80 * pulse)
+            special_color = (r, g, b)
+        else:
+            special_color = PURPLE
+        if fill_w > 0:
+            pygame.draw.rect(self.screen, special_color, (bar_x, special_y, fill_w, bar_h), border_radius=3)
+        # Border
+        border_color = YELLOW if self.special_ready else WHITE
+        pygame.draw.rect(self.screen, border_color, (bar_x, special_y, bar_w, bar_h), 1, border_radius=3)
+        # Ready indicator
+        if self.special_ready:
+            ready_blink = (pygame.time.get_ticks() % 600) < 300
+            if ready_blink:
+                ready_text = self.font_tiny.render("PRÊT!", True, YELLOW)
+                self.screen.blit(ready_text, (bar_x + bar_w + 6, special_y - 1))
+
+        # ── 2) Shield bar (middle) ─────────────────────────────────────────
+        shield_y = special_y + bar_h + gap
+        shield_label = self.font_tiny.render("SHIELD", True, WHITE)
+        self.screen.blit(shield_label, (bar_x - shield_label.get_width() - 6, shield_y))
+        # Background
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, shield_y, bar_w, bar_h), border_radius=3)
+        # Fill — always show, even when empty (greyed out)
+        if self.player:
+            shield_ratio = self.player.get_shield_ratio()
+        else:
+            shield_ratio = 0.0
+        if self.player and self.player.is_shielded():
+            shield_color = LIGHT_BLUE
+        else:
+            shield_color = (60, 60, 100)  # Dim when inactive
+        fill_w = int(bar_w * shield_ratio)
+        if fill_w > 0:
+            pygame.draw.rect(self.screen, shield_color, (bar_x, shield_y, fill_w, bar_h), border_radius=3)
+        # Border
+        border_c = BLUE if (self.player and self.player.is_shielded()) else GRAY
+        pygame.draw.rect(self.screen, border_c, (bar_x, shield_y, bar_w, bar_h), 1, border_radius=3)
+        # Numeric value
+        if self.player and self.player.is_shielded():
+            shield_val = self.font_tiny.render(f"{self.player.shield}", True, LIGHT_BLUE)
+            self.screen.blit(shield_val, (bar_x + bar_w + 6, shield_y - 1))
+
+        # ── 3) Health / Lives bar (bottom) ─────────────────────────────────
+        health_y = shield_y + bar_h + gap
+        lives_label = self.font_tiny.render("VIE", True, WHITE)
+        self.screen.blit(lives_label, (bar_x - lives_label.get_width() - 6, health_y))
+        # Background
+        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, health_y, bar_w, bar_h), border_radius=3)
+        # Fill
         max_lives_for_bar = 10
         health_ratio = min(1.0, self.lives / max_lives_for_bar)
-
-        # Health bar background
-        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_w, bar_h), border_radius=3)
-        # Health bar fill (green → yellow → red)
         if health_ratio > 0.5:
             health_color = GREEN
         elif health_ratio > 0.25:
@@ -1949,26 +2094,15 @@ class Game:
             health_color = RED
         fill_w = int(bar_w * health_ratio)
         if fill_w > 0:
-            pygame.draw.rect(self.screen, health_color, (bar_x, bar_y, fill_w, bar_h), border_radius=3)
-        # Health bar border
-        pygame.draw.rect(self.screen, WHITE, (bar_x, bar_y, bar_w, bar_h), 1, border_radius=3)
+            pygame.draw.rect(self.screen, health_color, (bar_x, health_y, fill_w, bar_h), border_radius=3)
+        # Border
+        pygame.draw.rect(self.screen, WHITE, (bar_x, health_y, bar_w, bar_h), 1, border_radius=3)
+        # Lives number
         lives_text = self.font_tiny.render(f"{self.lives}", True, WHITE)
-        self.screen.blit(lives_text, (bar_x + bar_w + 6, bar_y - 1))
-
-        # Shield bar (below health)
-        if self.player and self.player.is_shielded():
-            shield_bar_y = bar_y + bar_h + 4
-            shield_ratio = self.player.get_shield_ratio()
-            pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, shield_bar_y, bar_w, bar_h), border_radius=3)
-            fill_w = int(bar_w * shield_ratio)
-            if fill_w > 0:
-                pygame.draw.rect(self.screen, LIGHT_BLUE, (bar_x, shield_bar_y, fill_w, bar_h), border_radius=3)
-            pygame.draw.rect(self.screen, BLUE, (bar_x, shield_bar_y, bar_w, bar_h), 1, border_radius=3)
-            shield_label = self.font_tiny.render("SHIELD", True, LIGHT_BLUE)
-            self.screen.blit(shield_label, (bar_x + bar_w + 6, shield_bar_y - 1))
+        self.screen.blit(lives_text, (bar_x + bar_w + 6, health_y - 1))
 
         # ── Active bonus indicators ───────────────────────────────────────
-        bonus_x = self.screen_width - 400
+        bonus_x = self.screen_width - 450
         if self.active_bonuses["shield"]["active"]:
             shield_text = self.font_tiny.render("BOUCLIER", True, BLUE)
             self.screen.blit(shield_text, (bonus_x, 15))
@@ -1981,12 +2115,12 @@ class Game:
             duration = self.active_bonuses["mega_shot"].get("duration", 5000)
             if duration > 0:
                 mega_ratio = max(0.0, 1.0 - elapsed / duration)
-            bar_w, bar_h = 70, 10
-            pygame.draw.rect(self.screen, DARK_GRAY, (bonus_x, 18, bar_w, bar_h), border_radius=3)
-            fill_w = int(bar_w * mega_ratio)
+            mbar_w, mbar_h = 70, 10
+            pygame.draw.rect(self.screen, DARK_GRAY, (bonus_x, 18, mbar_w, mbar_h), border_radius=3)
+            fill_w = int(mbar_w * mega_ratio)
             if fill_w > 0:
-                pygame.draw.rect(self.screen, YELLOW, (bonus_x, 18, fill_w, bar_h), border_radius=3)
-            pygame.draw.rect(self.screen, ORANGE, (bonus_x, 18, bar_w, bar_h), 1, border_radius=3)
+                pygame.draw.rect(self.screen, YELLOW, (bonus_x, 18, fill_w, mbar_h), border_radius=3)
+            pygame.draw.rect(self.screen, ORANGE, (bonus_x, 18, mbar_w, mbar_h), 1, border_radius=3)
             mega_text = self.font_tiny.render("MEGA", True, YELLOW)
             self.screen.blit(mega_text, (bonus_x, 2))
             bonus_x += 90
@@ -1996,17 +2130,44 @@ class Game:
             cd_ratio = self.player.get_phase_dash_cooldown_ratio()
             if cd_ratio > 0:
                 # Draw cooldown bar
-                bar_w, bar_h = 60, 8
-                bar_x = bonus_x
-                bar_y = 18
-                pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, bar_y, bar_w, bar_h))
-                fill_w = int(bar_w * cd_ratio)
-                pygame.draw.rect(self.screen, CYAN, (bar_x, bar_y, fill_w, bar_h))
+                mbar_w, mbar_h = 60, 8
+                bar_x2 = bonus_x
+                bar_y2 = 18
+                pygame.draw.rect(self.screen, DARK_GRAY, (bar_x2, bar_y2, mbar_w, mbar_h))
+                fill_w = int(mbar_w * cd_ratio)
+                pygame.draw.rect(self.screen, CYAN, (bar_x2, bar_y2, fill_w, mbar_h))
                 cd_text = self.font_tiny.render("DASH", True, CYAN)
-                self.screen.blit(cd_text, (bar_x, bar_y - 14))
+                self.screen.blit(cd_text, (bar_x2, bar_y2 - 14))
             else:
                 ready_text = self.font_tiny.render("DASH READY", True, GREEN)
                 self.screen.blit(ready_text, (bonus_x, 15))
+
+        # ── Boss health bar ───────────────────────────────────────────────
+        if self.boss:
+            boss_bar_w, boss_bar_h = 400, 18
+            boss_bar_x = (self.screen_width - boss_bar_w) // 2
+            boss_bar_y = 78
+            boss_ratio = self.boss.get_health_ratio()
+
+            pygame.draw.rect(self.screen, DARK_GRAY,
+                             (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), border_radius=4)
+            if boss_ratio > 0.5:
+                boss_color = RED
+            elif boss_ratio > 0.25:
+                boss_color = ORANGE
+            else:
+                boss_color = (255, 50, 50)
+            fill_w = int(boss_bar_w * boss_ratio)
+            if fill_w > 0:
+                pygame.draw.rect(self.screen, boss_color,
+                                 (boss_bar_x, boss_bar_y, fill_w, boss_bar_h), border_radius=4)
+            pygame.draw.rect(self.screen, WHITE,
+                             (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), 1, border_radius=4)
+            boss_label = self.font_small.render("BOSS", True, RED)
+            self.screen.blit(boss_label, (boss_bar_x - 55, boss_bar_y - 1))
+            hp_text = self.font_tiny.render(f"{self.boss.health}/{self.boss.max_health}", True, WHITE)
+            hp_rect = hp_text.get_rect(center=(boss_bar_x + boss_bar_w // 2, boss_bar_y + boss_bar_h // 2 + 1))
+            self.screen.blit(hp_text, hp_rect)
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode.
