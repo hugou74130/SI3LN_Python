@@ -2101,174 +2101,261 @@ class Game:
         self.screen.blit(mega_text, mega_rect)
 
     def draw_hud(self):
-        """Draw heads-up display — three status bars at top-right."""
+        """Draw heads-up display — three status bars at top-right with enhanced visuals."""
         # ── Semi-transparent HUD background strip ──────────────────────────
-        hud_panel = pygame.Surface((self.screen_width, 70), pygame.SRCALPHA)
-        hud_panel.fill((0, 0, 0, 180))
+        hud_panel = pygame.Surface((self.screen_width, 75), pygame.SRCALPHA)
+        hud_panel.fill((0, 0, 0, 160))
         self.screen.blit(hud_panel, (0, 0))
+        # Bottom border line
+        pygame.draw.line(self.screen, (50, 50, 70), (0, 75), (self.screen_width, 75), 2)
 
         # ── Left side: Score & Level ───────────────────────────────────────
-        score_text = self.font_small.render(f"Score: {self.current_score}", True, WHITE)
-        self.screen.blit(score_text, (20, 8))
+        score_text = self.font_small.render(f"Score: {self.current_score:,}", True, WHITE)
+        self.screen.blit(score_text, (20, 10))
 
         level_text = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
-        level_rect = level_text.get_rect(center=(self.screen_width // 2, 25))
+        level_rect = level_text.get_rect(center=(self.screen_width // 2, 28))
         self.screen.blit(level_text, level_rect)
 
         # ── Bar configuration ──────────────────────────────────────────────
-        bar_w, bar_h = 140, 14
-        gap = 6
-        # Rightmost bar (special) starts here; bars stack leftward
-        bars_right_edge = self.screen_width - 20
+        bar_w, bar_h = 160, 16
+        gap = 8
+        bars_right_edge = self.screen_width - 25
         bar_x = bars_right_edge - bar_w
+        icon_size = 18
 
-        # ── 1) Special attack charge bar (top-most, rightmost) ─────────────
-        special_y = 8
-        special_label = self.font_tiny.render("SPECIAL", True, WHITE)
-        self.screen.blit(special_label, (bar_x - special_label.get_width() - 6, special_y))
-        # Background
-        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, special_y, bar_w, bar_h), border_radius=3)
-        # Fill
-        charge = min(1.0, max(0.0, self.special_charge))
-        fill_w = int(bar_w * charge)
-        if self.special_ready:
-            # Pulsing gold when ready
-            pulse = (pygame.time.get_ticks() % 400) / 400.0
-            r = int(255)
-            g = int(200 + 55 * pulse)
-            b = int(0 + 80 * pulse)
-            special_color = (r, g, b)
+        # ── 1) Health / Lives bar (top) ────────────────────────────────────
+        health_y = 10
+        # Heart icon
+        heart_color = RED if self.lives <= 2 else (255, 80, 80)
+        self._draw_heart_icon(bar_x - 26, health_y + 1, icon_size, heart_color)
+        # Background with rounded corners
+        self._draw_rounded_rect(self.screen, (bar_x, health_y, bar_w, bar_h), DARK_GRAY, 4)
+        # Fill with gradient effect
+        max_lives_for_bar = 10
+        health_ratio = min(1.0, self.lives / max_lives_for_bar)
+        if health_ratio > 0.6:
+            health_color = (50, 220, 50)   # Bright green
+            health_color_end = (30, 180, 30)
+        elif health_ratio > 0.3:
+            health_color = (255, 200, 0)   # Orange-yellow
+            health_color_end = (220, 150, 0)
         else:
-            special_color = PURPLE
+            health_color = (255, 60, 60)    # Red
+            health_color_end = (200, 30, 30)
+        fill_w = int(bar_w * health_ratio)
         if fill_w > 0:
-            pygame.draw.rect(self.screen, special_color, (bar_x, special_y, fill_w, bar_h), border_radius=3)
+            self._draw_gradient_bar(bar_x, health_y, fill_w, bar_h, health_color, health_color_end, 4)
         # Border
-        border_color = YELLOW if self.special_ready else WHITE
-        pygame.draw.rect(self.screen, border_color, (bar_x, special_y, bar_w, bar_h), 1, border_radius=3)
-        # Ready indicator
-        if self.special_ready:
-            ready_blink = (pygame.time.get_ticks() % 600) < 300
-            if ready_blink:
-                ready_text = self.font_tiny.render("PRÊT!", True, YELLOW)
-                self.screen.blit(ready_text, (bar_x + bar_w + 6, special_y - 1))
+        border_color = (255, 100, 100) if self.lives <= 2 else WHITE
+        pygame.draw.rect(self.screen, border_color, (bar_x, health_y, bar_w, bar_h), 1, border_radius=4)
+        # Lives number centered on bar
+        lives_text = self.font_tiny.render(f"{self.lives}/{MAX_LIVES}", True, WHITE)
+        text_x = bar_x + (bar_w - lives_text.get_width()) // 2
+        self.screen.blit(lives_text, (text_x, health_y + 1))
 
         # ── 2) Shield bar (middle) ─────────────────────────────────────────
-        shield_y = special_y + bar_h + gap
-        shield_label = self.font_tiny.render("SHIELD", True, WHITE)
-        self.screen.blit(shield_label, (bar_x - shield_label.get_width() - 6, shield_y))
+        shield_y = health_y + bar_h + gap
+        # Shield icon
+        shield_active = self.player and self.player.is_shielded()
+        shield_icon_color = (100, 200, 255) if shield_active else (80, 80, 100)
+        self._draw_shield_icon(bar_x - 26, shield_y + 1, icon_size, shield_icon_color)
         # Background
-        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, shield_y, bar_w, bar_h), border_radius=3)
-        # Fill — always show, even when empty (greyed out)
+        self._draw_rounded_rect(self.screen, (bar_x, shield_y, bar_w, bar_h), DARK_GRAY, 4)
+        # Fill
         if self.player:
             shield_ratio = self.player.get_shield_ratio()
         else:
             shield_ratio = 0.0
-        if self.player and self.player.is_shielded():
-            shield_color = LIGHT_BLUE
-        else:
-            shield_color = (60, 60, 100)  # Dim when inactive
         fill_w = int(bar_w * shield_ratio)
         if fill_w > 0:
-            pygame.draw.rect(self.screen, shield_color, (bar_x, shield_y, fill_w, bar_h), border_radius=3)
+            if shield_active:
+                # Animated cyan-blue gradient when active
+                pulse = (pygame.time.get_ticks() % 1000) / 1000.0
+                shield_color = (80 + int(40 * pulse), 180, 255)
+                shield_color_end = (40, 120, 220)
+            else:
+                shield_color = (60, 60, 90)
+                shield_color_end = (40, 40, 60)
+            self._draw_gradient_bar(bar_x, shield_y, fill_w, bar_h, shield_color, shield_color_end, 4)
         # Border
-        border_c = BLUE if (self.player and self.player.is_shielded()) else GRAY
-        pygame.draw.rect(self.screen, border_c, (bar_x, shield_y, bar_w, bar_h), 1, border_radius=3)
-        # Numeric value
-        if self.player and self.player.is_shielded():
-            shield_val = self.font_tiny.render(f"{self.player.shield}", True, LIGHT_BLUE)
-            self.screen.blit(shield_val, (bar_x + bar_w + 6, shield_y - 1))
+        border_c = (80, 200, 255) if shield_active else (100, 100, 120)
+        pygame.draw.rect(self.screen, border_c, (bar_x, shield_y, bar_w, bar_h), 1, border_radius=4)
+        # Shield value
+        if self.player and shield_ratio > 0:
+            shield_val = self.font_tiny.render(f"{int(shield_ratio * 100)}%", True, (200, 230, 255))
+            self.screen.blit(shield_val, (bar_x + bar_w + 6, shield_y + 1))
 
-        # ── 3) Health / Lives bar (bottom) ─────────────────────────────────
-        health_y = shield_y + bar_h + gap
-        lives_label = self.font_tiny.render("VIE", True, WHITE)
-        self.screen.blit(lives_label, (bar_x - lives_label.get_width() - 6, health_y))
+        # ── 3) Special attack charge bar (bottom) ──────────────────────────
+        special_y = shield_y + bar_h + gap
+        # Special icon (lightning bolt)
+        special_ready = self.special_ready
+        special_icon_color = (255, 220, 0) if special_ready else (120, 80, 160)
+        self._draw_lightning_icon(bar_x - 26, special_y + 1, icon_size, special_icon_color)
         # Background
-        pygame.draw.rect(self.screen, DARK_GRAY, (bar_x, health_y, bar_w, bar_h), border_radius=3)
+        self._draw_rounded_rect(self.screen, (bar_x, special_y, bar_w, bar_h), DARK_GRAY, 4)
         # Fill
-        max_lives_for_bar = 10
-        health_ratio = min(1.0, self.lives / max_lives_for_bar)
-        if health_ratio > 0.5:
-            health_color = GREEN
-        elif health_ratio > 0.25:
-            health_color = YELLOW
-        else:
-            health_color = RED
-        fill_w = int(bar_w * health_ratio)
+        charge = min(1.0, max(0.0, self.special_charge))
+        fill_w = int(bar_w * charge)
         if fill_w > 0:
-            pygame.draw.rect(self.screen, health_color, (bar_x, health_y, fill_w, bar_h), border_radius=3)
+            if special_ready:
+                # Pulsing gold-yellow gradient
+                pulse = (pygame.time.get_ticks() % 500) / 500.0
+                special_color = (255, 220, 0)
+                special_color_end = (255, 140 + int(60 * pulse), 0)
+            else:
+                # Purple gradient charging
+                special_color = (180, 100, 220)
+                special_color_end = (100, 50, 150)
+            self._draw_gradient_bar(bar_x, special_y, fill_w, bar_h, special_color, special_color_end, 4)
         # Border
-        pygame.draw.rect(self.screen, WHITE, (bar_x, health_y, bar_w, bar_h), 1, border_radius=3)
-        # Lives number
-        lives_text = self.font_tiny.render(f"{self.lives}", True, WHITE)
-        self.screen.blit(lives_text, (bar_x + bar_w + 6, health_y - 1))
+        border_color = (255, 220, 0) if special_ready else (150, 100, 180)
+        pygame.draw.rect(self.screen, border_color, (bar_x, special_y, bar_w, bar_h), 1, border_radius=4)
+        # Charge percentage or READY text
+        if special_ready:
+            ready_blink = (pygame.time.get_ticks() % 600) < 300
+            if ready_blink:
+                ready_text = self.font_tiny.render("READY!", True, (255, 255, 0))
+                self.screen.blit(ready_text, (bar_x + bar_w + 6, special_y + 1))
+        else:
+            charge_pct = int(charge * 100)
+            charge_text = self.font_tiny.render(f"{charge_pct}%", True, (200, 180, 220))
+            self.screen.blit(charge_text, (bar_x + bar_w + 6, special_y + 1))
 
         # ── Active bonus indicators ───────────────────────────────────────
-        bonus_x = self.screen_width - 450
+        bonus_x = 20
+        bonus_y = 42
+        
         if self.active_bonuses["shield"]["active"]:
-            shield_text = self.font_tiny.render("BOUCLIER", True, BLUE)
-            self.screen.blit(shield_text, (bonus_x, 15))
-            bonus_x += 90
+            # Shield bonus with animated border
+            bonus_surf = pygame.Surface((100, 28), pygame.SRCALPHA)
+            pygame.draw.rect(bonus_surf, (0, 100, 200, 180), (0, 0, 100, 28), border_radius=6)
+            pygame.draw.rect(bonus_surf, (100, 200, 255), (0, 0, 100, 28), 2, border_radius=6)
+            shield_bonus_text = self.font_tiny.render("🛡️ BOUCLIER", True, WHITE)
+            bonus_surf.blit(shield_bonus_text, (6, 6))
+            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
+            bonus_x += 110
 
         if self.active_bonuses["mega_shot"]["active"]:
-            # Mega shot duration bar
-            mega_ratio = 1.0
+            # Mega shot with duration bar
             elapsed = pygame.time.get_ticks() - self.active_bonuses["mega_shot"].get("timer", 0)
             duration = self.active_bonuses["mega_shot"].get("duration", 5000)
-            if duration > 0:
-                mega_ratio = max(0.0, 1.0 - elapsed / duration)
-            mbar_w, mbar_h = 70, 10
-            pygame.draw.rect(self.screen, DARK_GRAY, (bonus_x, 18, mbar_w, mbar_h), border_radius=3)
-            fill_w = int(mbar_w * mega_ratio)
-            if fill_w > 0:
-                pygame.draw.rect(self.screen, YELLOW, (bonus_x, 18, fill_w, mbar_h), border_radius=3)
-            pygame.draw.rect(self.screen, ORANGE, (bonus_x, 18, mbar_w, mbar_h), 1, border_radius=3)
-            mega_text = self.font_tiny.render("MEGA", True, YELLOW)
-            self.screen.blit(mega_text, (bonus_x, 2))
-            bonus_x += 90
+            mega_ratio = max(0.0, 1.0 - elapsed / duration) if duration > 0 else 0.0
+            
+            bonus_surf = pygame.Surface((110, 28), pygame.SRCALPHA)
+            pygame.draw.rect(bonus_surf, (200, 150, 0, 180), (0, 0, 110, 28), border_radius=6)
+            pygame.draw.rect(bonus_surf, (255, 200, 0), (0, 0, 110, 28), 2, border_radius=6)
+            mega_bonus_text = self.font_tiny.render("⚡ MEGA", True, WHITE)
+            bonus_surf.blit(mega_bonus_text, (6, 2))
+            # Mini duration bar
+            bar_w_mini = 90
+            fill_w_mini = int(bar_w_mini * mega_ratio)
+            pygame.draw.rect(bonus_surf, (60, 60, 60), (6, 18, bar_w_mini, 6), border_radius=3)
+            if fill_w_mini > 0:
+                pygame.draw.rect(bonus_surf, (255, 220, 0), (6, 18, fill_w_mini, 6), border_radius=3)
+            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
+            bonus_x += 120
         
         # Phase Dash cooldown indicator (Phantom Striker only)
         if self.player and self.player.is_phantom:
             cd_ratio = self.player.get_phase_dash_cooldown_ratio()
+            bonus_surf = pygame.Surface((100, 28), pygame.SRCALPHA)
             if cd_ratio > 0:
-                # Draw cooldown bar
-                mbar_w, mbar_h = 60, 8
-                bar_x2 = bonus_x
-                bar_y2 = 18
-                pygame.draw.rect(self.screen, DARK_GRAY, (bar_x2, bar_y2, mbar_w, mbar_h))
-                fill_w = int(mbar_w * cd_ratio)
-                pygame.draw.rect(self.screen, CYAN, (bar_x2, bar_y2, fill_w, mbar_h))
-                cd_text = self.font_tiny.render("DASH", True, CYAN)
-                self.screen.blit(cd_text, (bar_x2, bar_y2 - 14))
+                pygame.draw.rect(bonus_surf, (0, 80, 100, 180), (0, 0, 100, 28), border_radius=6)
+                pygame.draw.rect(bonus_surf, (0, 200, 255), (0, 0, 100, 28), 2, border_radius=6)
+                cd_text = self.font_tiny.render("DASH...", True, (0, 200, 255))
+                bonus_surf.blit(cd_text, (8, 6))
+                # Cooldown mini bar
+                fill_cd = int(80 * (1 - cd_ratio))
+                pygame.draw.rect(bonus_surf, (60, 60, 60), (8, 20, 80, 4), border_radius=2)
+                if fill_cd > 0:
+                    pygame.draw.rect(bonus_surf, (0, 255, 255), (8, 20, fill_cd, 4), border_radius=2)
             else:
-                ready_text = self.font_tiny.render("DASH READY", True, GREEN)
-                self.screen.blit(ready_text, (bonus_x, 15))
+                pygame.draw.rect(bonus_surf, (0, 150, 50, 180), (0, 0, 100, 28), border_radius=6)
+                pygame.draw.rect(bonus_surf, (0, 255, 100), (0, 0, 100, 28), 2, border_radius=6)
+                ready_text = self.font_tiny.render("✓ DASH READY", True, (0, 255, 100))
+                bonus_surf.blit(ready_text, (8, 6))
+            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
 
         # ── Boss health bar ───────────────────────────────────────────────
         if self.boss:
-            boss_bar_w, boss_bar_h = 400, 18
+            boss_bar_w, boss_bar_h = 400, 20
             boss_bar_x = (self.screen_width - boss_bar_w) // 2
-            boss_bar_y = 78
+            boss_bar_y = 82
             boss_ratio = self.boss.get_health_ratio()
 
-            pygame.draw.rect(self.screen, DARK_GRAY,
-                             (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), border_radius=4)
-            if boss_ratio > 0.5:
-                boss_color = RED
-            elif boss_ratio > 0.25:
-                boss_color = ORANGE
-            else:
-                boss_color = (255, 50, 50)
+            # Boss name label
+            boss_name = self.font_tiny.render(f"BOSS: {self.boss.name}", True, (255, 100, 100))
+            self.screen.blit(boss_name, (boss_bar_x, boss_bar_y - 18))
+            
+            # Background
+            self._draw_rounded_rect(self.screen, (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), (40, 20, 20), 5)
+            # Fill
             fill_w = int(boss_bar_w * boss_ratio)
             if fill_w > 0:
-                pygame.draw.rect(self.screen, boss_color,
-                                 (boss_bar_x, boss_bar_y, fill_w, boss_bar_h), border_radius=4)
-            pygame.draw.rect(self.screen, WHITE,
-                             (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), 1, border_radius=4)
-            boss_label = self.font_small.render("BOSS", True, RED)
-            self.screen.blit(boss_label, (boss_bar_x - 55, boss_bar_y - 1))
-            hp_text = self.font_tiny.render(f"{self.boss.health}/{self.boss.max_health}", True, WHITE)
-            hp_rect = hp_text.get_rect(center=(boss_bar_x + boss_bar_w // 2, boss_bar_y + boss_bar_h // 2 + 1))
-            self.screen.blit(hp_text, hp_rect)
+                if boss_ratio > 0.5:
+                    boss_color = (220, 60, 60)
+                    boss_color_end = (180, 30, 30)
+                elif boss_ratio > 0.25:
+                    boss_color = (255, 120, 0)
+                    boss_color_end = (220, 80, 0)
+                else:
+                    boss_color = (255, 50, 50)
+                    boss_color_end = (200, 20, 20)
+                self._draw_gradient_bar(boss_bar_x, boss_bar_y, fill_w, boss_bar_h, boss_color, boss_color_end, 5)
+            # Border
+            pygame.draw.rect(self.screen, (255, 100, 100), (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), 2, border_radius=5)
+            # Health percentage
+            boss_pct = int(boss_ratio * 100)
+            pct_text = self.font_tiny.render(f"{boss_pct}%", True, WHITE)
+            self.screen.blit(pct_text, (boss_bar_x + boss_bar_w + 8, boss_bar_y + 2))
+
+    def _draw_rounded_rect(self, surface, rect, color, radius):
+        """Helper to draw a rounded rectangle."""
+        pygame.draw.rect(surface, color, rect, border_radius=radius)
+
+    def _draw_gradient_bar(self, x, y, width, height, color_start, color_end, radius):
+        """Draw a horizontal gradient bar."""
+        for i in range(width):
+            ratio = i / max(width - 1, 1)
+            r = int(color_start[0] + (color_end[0] - color_start[0]) * ratio)
+            g = int(color_start[1] + (color_end[1] - color_start[1]) * ratio)
+            b = int(color_start[2] + (color_end[2] - color_start[2]) * ratio)
+            pygame.draw.line(self.screen, (r, g, b), (x + i, y), (x + i, y + height - 1))
+        # Top and bottom highlight for 3D effect
+        pygame.draw.line(self.screen, (min(255, r + 40), min(255, g + 40), min(255, b + 40)), 
+                        (x, y), (x + width - 1, y))
+        pygame.draw.line(self.screen, (max(0, r - 40), max(0, g - 40), max(0, b - 40)), 
+                        (x, y + height - 1), (x + width - 1, y + height - 1))
+
+    def _draw_heart_icon(self, x, y, size, color):
+        """Draw a simple heart icon."""
+        # Simple filled circle as heart approximation
+        pygame.draw.circle(self.screen, color, (x + size // 2, y + size // 2), size // 2)
+        pygame.draw.circle(self.screen, (min(255, color[0] + 40), min(255, color[1] + 40), min(255, color[2] + 40)), 
+                          (x + size // 2, y + size // 2), size // 2 - 2)
+
+    def _draw_shield_icon(self, x, y, size, color):
+        """Draw a shield icon."""
+        # Shield shape (rounded rect)
+        shield_rect = (x + 2, y + 2, size - 4, size - 4)
+        pygame.draw.rect(self.screen, color, shield_rect, border_radius=size // 4)
+        pygame.draw.rect(self.screen, (min(255, color[0] + 50), min(255, color[1] + 50), min(255, color[2] + 50)), 
+                        shield_rect, 2, border_radius=size // 4)
+
+    def _draw_lightning_icon(self, x, y, size, color):
+        """Draw a lightning bolt icon."""
+        # Lightning bolt shape
+        points = [
+            (x + size // 2, y + 2),
+            (x + size // 4, y + size // 2),
+            (x + size // 2 + 2, y + size // 2),
+            (x + size // 2 - 2, y + size - 2),
+            (x + 3 * size // 4, y + size // 2 - 2),
+            (x + size // 2 - 2, y + size // 2 - 2),
+        ]
+        pygame.draw.polygon(self.screen, color, points)
+        pygame.draw.polygon(self.screen, (min(255, color[0] + 60), min(255, color[1] + 60), min(255, color[2] + 60)), points, 2)
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode.
