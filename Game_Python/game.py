@@ -911,6 +911,10 @@ class Game:
                             keybinding_manager=self.keybinding,
                             sound_manager=self.sound)
 
+        # During tutorial, allow player to move higher up the screen
+        if self.state == STATE_TUTORIAL:
+            self.player.min_y = 60
+
         # Reset special attack charge on new level
         self.special_charge = 0.0
         self.special_ready = False
@@ -987,6 +991,10 @@ class Game:
                             keybinding_manager=self.keybinding,
                             sound_manager=self.sound)
 
+        # During tutorial, allow player to move higher up the screen
+        if self.state == STATE_TUTORIAL:
+            self.player.min_y = 60
+
         # Reset special attack charge on new level
         self.special_charge = 0.0
         self.special_ready = False
@@ -1027,8 +1035,8 @@ class Game:
                           harmless=True, can_shoot=False, behavior="patrol")
             self.tutorial_sprites.add(drone)
         
-        # Spawn power-up (stationary for tutorial)
-        self.tutorial_powerup = Bonus(self.screen_width // 2, 200, "shield")
+        # Spawn power-up (stationary for tutorial) — place it within reach
+        self.tutorial_powerup = Bonus(self.screen_width // 2, 300, "shield")
         self.tutorial_powerup.speed = 0
         self.tutorial_sprites.add(self.tutorial_powerup)
         
