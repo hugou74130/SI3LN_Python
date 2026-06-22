@@ -1159,27 +1159,47 @@ class Game:
             # Spawn survival waves every 5 seconds
             elapsed = pygame.time.get_ticks() - self.tutorial_objective_start_time
             wave_interval = 5000  # 5 seconds between waves
-            # Determine how many waves should have spawned by now
             waves_spawned = getattr(self, '_survive_waves_spawned', 0)
             expected_waves = elapsed // wave_interval
             if expected_waves > waves_spawned:
-                # Spawn a small wave of harmless patrol drones
                 self._spawn_survival_wave(int(expected_waves - waves_spawned))
                 self._survive_waves_spawned = int(expected_waves)
-            # Update survival drones (they patrol and shoot weakly)
+
+            # Update survival drones movement
             for sprite in self.tutorial_sprites:
                 if isinstance(sprite, Enemy):
                     sprite.update()
-                    # Survival drones can shoot (harmless=False but slow)
-                    if sprite.can_shoot():
-                        bullet = Bullet(sprite.rect.centerx,
-                                        sprite.rect.bottom,
-                                        self.enemy_bullet_img,
-                                        False,
-                                        self.screen_height)
-                        self.enemy_bullets.add(bullet)
-                        sprite.last_shot = pygame.time.get_ticks()
-            # Check player collision with survival drones
+
+            # Survival drones shoot at player
+            current_time = pygame.time.get_ticks()
+            for sprite in self.tutorial_sprites:
+                if isinstance(sprite, Enemy):
+                    if current_time - sprite.last_shot > sprite.shoot_cooldown:
+                        if random.random() < 0.02:  # 2% chance per frame to shoot
+                            bullet = Bullet(sprite.rect.centerx,
+                                            sprite.rect.bottom,
+                                            self.enemy_bullet_img,
+                                            False,
+                                            self.screen_height)
+                            self.enemy_bullets.add(bullet)
+                            sprite.last_shot = current_time
+
+            # Player bullets hit survival drones
+            for bullet in self.player_bullets:
+                hits = pygame.sprite.spritecollide(bullet, self.tutorial_sprites, False)
+                for sprite in hits:
+                    if isinstance(sprite, Enemy):
+                        sprite.kill()
+                        bullet.kill()
+                        self.enemies_killed += 1
+                        self.current_score += 10
+                        explosion = Explosion(sprite.rect.centerx, sprite.rect.centery,
+                                              explosion_img=self.enemy_explosion_img)
+                        self.explosions.add(explosion)
+                        self.sound.play("explosion")
+                        break
+
+            # Survival drones collide with player
             if self.player and not self.player.is_invincible():
                 hits = pygame.sprite.spritecollide(self.player, self.tutorial_sprites, False)
                 for sprite in hits:
@@ -1190,6 +1210,17 @@ class Game:
                         self.sound.play("hit")
                         if self.lives <= 0 and TUTORIAL_NO_DEATH_PENALTY:
                             self.lives = MAX_LIVES
+
+            # Enemy bullets from survival drones hit player
+            if self.player and not self.player.is_invincible():
+                bullet_hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
+                if bullet_hits:
+                    damage = self.player.take_damage(len(bullet_hits))
+                    self.lives -= damage
+                    self.sound.play("hit")
+                    if self.lives <= 0 and TUTORIAL_NO_DEATH_PENALTY:
+                        self.lives = MAX_LIVES
+
             # Check if 30 seconds have passed
             if elapsed >= TUTORIAL_SURVIVE_TIME:
                 # Clean up remaining survival drones
