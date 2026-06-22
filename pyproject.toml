@@ -1,0 +1,8 @@
+[project]
+name = "si3ln-python"
+version = "0.1.0"
+description = "SI3LN Game - Space Invaders III Last Night"
+requires-python = ">=3.10"
+dependencies = [
+    "pygame>=2.5.0",
+]

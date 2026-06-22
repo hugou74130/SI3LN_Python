@@ -589,3 +589,86 @@ class SpecialAttack(pygame.sprite.Sprite):
                 
             if self.bounces >= self.max_bounces or self.rect.top > self.screen_height:
                 self.kill()
+
+
+class Boss(pygame.sprite.Sprite):
+    """Boss enemy for the final level of each world."""
+
+    def __init__(self, x, y, image, screen_width, level=1, world_name="Space"):
+        super().__init__()
+        # Boss is larger than normal enemies
+        size = (120, 120)
+        self.original_image = pygame.transform.scale(image, size)
+        self.image = self.original_image
+        self.rect = self.image.get_rect(center=(x, y))
+        self.screen_width = screen_width
+        self.world_name = world_name
+
+        # Health scales with level
+        self.max_health = 50 + level * 15
+        self.health = self.max_health
+
+        # Movement: oscillate horizontally near the top
+        self.speed = ENEMY_SPEED + level * 0.15
+        self.direction = 1
+        self.min_x = 80
+        self.max_x = screen_width - 80
+        self.base_y = y
+        self.float_timer = 0.0
+
+        # Shooting: faster than normal enemies
+        self.last_shot = pygame.time.get_ticks()
+        self.shoot_cooldown = max(500, 1800 - level * 100)
+        self.shoot_chance = min(0.08 * level, 0.35)
+        self.can_shoot_flag = True
+
+        # Hit flash effect
+        self.flash_timer = 0
+        self.base_image = self.original_image.copy()
+
+    def take_damage(self, damage=1):
+        """Apply damage and return True if the boss died."""
+        self.health -= damage
+        self.flash_timer = 5  # frames
+        if self.health <= 0:
+            return True
+        return False
+
+    def get_health_ratio(self):
+        """Return current health ratio 0.0 - 1.0."""
+        return max(0.0, self.health / self.max_health)
+
+    def update(self):
+        """Update boss movement and hit flash."""
+        # Horizontal oscillation
+        self.rect.x += self.speed * self.direction
+        if self.rect.right >= self.max_x and self.direction > 0:
+            self.direction = -1
+        elif self.rect.left <= self.min_x and self.direction < 0:
+            self.direction = 1
+
+        # Vertical float
+        self.float_timer += 0.05
+        self.rect.y = self.base_y + int(10 * math.sin(self.float_timer))
+
+        # Hit flash
+        if self.flash_timer > 0:
+            self.flash_timer -= 1
+            if self.flash_timer == 0:
+                self.image = self.base_image
+            else:
+                # Tint red briefly
+                tinted = self.base_image.copy()
+                tinted.fill((255, 0, 0, 100), special_flags=pygame.BLEND_RGBA_ADD)
+                self.image = tinted
+
+    def can_shoot(self):
+        """Check if boss can shoot."""
+        if not self.can_shoot_flag:
+            return False
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_shot > self.shoot_cooldown:
+            if random.random() < self.shoot_chance:
+                self.last_shot = current_time
+                return True
+        return False
