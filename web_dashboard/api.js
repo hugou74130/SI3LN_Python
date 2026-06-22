@@ -121,6 +121,11 @@ class APIClient {
     }
 
     async getLeaderboard(limit = 10) {
+        return this.request(`/game/leaderboard/global?limit=${limit}`);
+    }
+
+    async getLeaderboardLegacy(limit = 10) {
+        // Fallback to legacy endpoint for backward compatibility
         return this.request(`/game/leaderboard?limit=${limit}`);
     }
 

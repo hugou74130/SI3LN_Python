@@ -1,6 +1,7 @@
 """
 Score management system for SI3LN Game
 Manages high scores and leaderboard (top 20)
+Uses API when authenticated, falls back to local JSON
 """
 import json
 import os
@@ -9,9 +10,10 @@ from constants import SCORES_FILE
 
 
 class ScoreManager:
-    def __init__(self):
+    def __init__(self, api_client=None):
         self.scores = self.load_scores()
         self.max_scores = 20  # Top 20
+        self.api = api_client  # Optional API client for cloud sync
     
     def load_scores(self):
         """Load scores from JSON file"""
@@ -48,7 +50,7 @@ class ScoreManager:
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
-        # Add to scores
+        # Add to local scores
         self.scores.append(score_entry)
         
         # Sort by score (descending)
@@ -75,7 +77,25 @@ class ScoreManager:
         return position, is_top_20
     
     def get_top_scores(self, limit=20):
-        """Get top N scores"""
+        """Get top N scores - prefers API when available"""
+        # Try API first if authenticated
+        if self.api and self.api.is_authenticated():
+            try:
+                api_scores = self.api.get_leaderboard_global(limit=limit)
+                if api_scores and isinstance(api_scores, list):
+                    # Convert API format to local format
+                    return [
+                        {
+                            "username": entry.get("player_name", "Unknown"),
+                            "score": entry.get("score", 0),
+                            "level": entry.get("level_id", 1),
+                            "date": entry.get("created_at", "")
+                        }
+                        for entry in api_scores
+                    ]
+            except Exception as e:
+                print(f"API leaderboard fetch failed, using local: {e}")
+        
         return self.scores[:limit]
     
     def get_user_best_score(self, username):

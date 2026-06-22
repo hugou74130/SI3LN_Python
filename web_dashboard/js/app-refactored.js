@@ -397,9 +397,14 @@ class AppManager {
         // Load leaderboard
         try {
             const facade = window.facade;
-            const leaderboardData = facade
+            let leaderboardData = facade
                 ? await facade.getLeaderboard(3)
                 : await window.api.getLeaderboard(3);
+            
+            // Handle both array and object with entries
+            if (leaderboardData && typeof leaderboardData === 'object' && Array.isArray(leaderboardData.entries)) {
+                leaderboardData = leaderboardData.entries;
+            }
             
             const leaderboardDiv = document.getElementById('leaderboard');
             if (Array.isArray(leaderboardData) && leaderboardDiv) {
@@ -408,8 +413,8 @@ class AppManager {
                 } else {
                     leaderboardDiv.innerHTML = leaderboardData
                         .map((entry, i) => `<div class="lb-entry">
-                            <span class="lb-rank">#${i + 1}</span>
-                            <span class="lb-name">${entry.player_username || 'Unknown'}</span>
+                            <span class="lb-rank">#${entry.rank || i + 1}</span>
+                            <span class="lb-name">${entry.player_username || entry.player_name || 'Unknown'}</span>
                             <span class="lb-score">${entry.score} pts</span>
                         </div>`)
                         .join('');

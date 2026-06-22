@@ -58,7 +58,6 @@ class Game:
         
         # Systems
         self.auth = AuthSystem()
-        self.score_manager = ScoreManager()
         self.keybinding = KeybindingManager(DATA_DIR)
         self.sound = SoundManager(enabled=True, volume=0.4)
 
@@ -73,6 +72,9 @@ class Game:
             self.auth.login_as_guest(0)
         self._session_started = False
         self._session_start_time = 0
+
+        # Initialize score manager with API client for cloud sync
+        self.score_manager = ScoreManager(api_client=self.api)
         
         # Game data
         self.current_score = 0
@@ -2004,11 +2006,13 @@ class Game:
         # Supplement with API leaderboard if local scores are empty
         if not scores:
             try:
-                api_lb = self.api.get_leaderboard(limit=10)
+                api_lb = self.api.get_leaderboard_global(limit=10)
+                if isinstance(api_lb, dict) and "entries" in api_lb:
+                    api_lb = api_lb.get("entries", [])
                 scores = [
-                    {"username": e.get("player_username", "?"),
+                    {"username": e.get("player_name") or e.get("player_username", "?"),
                      "score":    e.get("score", 0),
-                     "level":    e.get("level_reached", 1)}
+                     "level":    e.get("level_id") or e.get("level_reached", 1)}
                     for e in api_lb
                 ]
             except Exception:
