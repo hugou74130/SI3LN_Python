@@ -1063,6 +1063,25 @@ class Game:
         if self.tutorial_current_idx < len(self.tutorial_objectives):
             self.show_message(next_description, color, 300)
     
+    def _spawn_survival_wave(self, count=1):
+        """Spawn a wave of enemy drones for the survival phase."""
+        enemy_img = self.enemy_images.get("BootCamp")
+        if not enemy_img:
+            enemy_img = self.enemy_images.get("Space", [])
+        if enemy_img:
+            enemy_img = enemy_img[0]
+        else:
+            enemy_img = pygame.Surface((50, 50), pygame.SRCALPHA)
+            pygame.draw.circle(enemy_img, HOLO_BLUE, (25, 25), 20, 3)
+        for i in range(count * 3):
+            x = random.randint(100, self.screen_width - 100)
+            y = random.randint(60, 200)
+            drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
+                          harmless=False, can_shoot=True, behavior="patrol")
+            drone.speed = 1.5
+            drone.shoot_cooldown = 2000  # Slow shooting
+            self.tutorial_sprites.add(drone)
+    
     def update_tutorial(self):
         """Update Boot Camp tutorial logic"""
         if not self.player:
@@ -1137,8 +1156,47 @@ class Game:
                         "OBJECTIF: Survivez 30 secondes!", HOLO_GREEN)
         
         elif current_obj == TUTORIAL_OBJ_SURVIVE:
+            # Spawn survival waves every 5 seconds
             elapsed = pygame.time.get_ticks() - self.tutorial_objective_start_time
+            wave_interval = 5000  # 5 seconds between waves
+            # Determine how many waves should have spawned by now
+            waves_spawned = getattr(self, '_survive_waves_spawned', 0)
+            expected_waves = elapsed // wave_interval
+            if expected_waves > waves_spawned:
+                # Spawn a small wave of harmless patrol drones
+                self._spawn_survival_wave(int(expected_waves - waves_spawned))
+                self._survive_waves_spawned = int(expected_waves)
+            # Update survival drones (they patrol and shoot weakly)
+            for sprite in self.tutorial_sprites:
+                if isinstance(sprite, Enemy):
+                    sprite.update()
+                    # Survival drones can shoot (harmless=False but slow)
+                    if sprite.can_shoot():
+                        bullet = Bullet(sprite.rect.centerx,
+                                        sprite.rect.bottom,
+                                        self.enemy_bullet_img,
+                                        False,
+                                        self.screen_height)
+                        self.enemy_bullets.add(bullet)
+                        sprite.last_shot = pygame.time.get_ticks()
+            # Check player collision with survival drones
+            if self.player and not self.player.is_invincible():
+                hits = pygame.sprite.spritecollide(self.player, self.tutorial_sprites, False)
+                for sprite in hits:
+                    if isinstance(sprite, Enemy):
+                        damage = self.player.take_damage(1)
+                        self.lives -= damage
+                        sprite.kill()
+                        self.sound.play("hit")
+                        if self.lives <= 0 and TUTORIAL_NO_DEATH_PENALTY:
+                            self.lives = MAX_LIVES
+            # Check if 30 seconds have passed
             if elapsed >= TUTORIAL_SURVIVE_TIME:
+                # Clean up remaining survival drones
+                for sprite in list(self.tutorial_sprites):
+                    if isinstance(sprite, Enemy):
+                        sprite.kill()
+                self._survive_waves_spawned = 0
                 self._advance_tutorial_objective(
                     "OBJECTIF: Atteignez le portail de sortie!", HOLO_GREEN)
         
