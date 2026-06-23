@@ -21,19 +21,31 @@ from sound_manager import SoundManager
 
 
 class Game:
-    def __init__(self):
-        # Initialize Pygame
-        pygame.init()
-        
+    def __init__(self, wasm=False):
+        # pygame.init() is already called in main.py before creating Game.
+        # Calling it again here can confuse SDL/pygbag on WASM.
+        # pygame.init()
+
+        self._wasm = wasm
+
         # Screen setup with resizable window
         self.screen_info = pygame.display.Info()
         self.screen_width = DEFAULT_SCREEN_WIDTH
         self.screen_height = DEFAULT_SCREEN_HEIGHT
-        # Real display surface – only used for the final blit in draw()
-        self._display = pygame.display.set_mode(
-            (self.screen_width, self.screen_height),
-            pygame.SCALED | pygame.RESIZABLE
-        )
+
+        if wasm:
+            # Pygbag / WebAssembly: use a fixed framebuffer, no SCALED/RESIZABLE
+            # SCALED triggers an SDL2 OpenGL context that Emscripten can't
+            # provide, leading to "SDL2.ctx is null" → createImageData crash.
+            self._display = pygame.display.set_mode(
+                (self.screen_width, self.screen_height)
+            )
+        else:
+            # Native desktop: allow resizing with auto-scaling
+            self._display = pygame.display.set_mode(
+                (self.screen_width, self.screen_height),
+                pygame.SCALED | pygame.RESIZABLE
+            )
         pygame.display.set_caption("S I 3 L N")
 
         # ResolutionManager: scale factor S = min(W/1280, H/720)
