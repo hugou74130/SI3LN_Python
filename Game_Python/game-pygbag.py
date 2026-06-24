@@ -1096,10 +1096,8 @@ class Game:
             x = random.randint(100, self.screen_width - 100)
             y = random.randint(60, 200)
             drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
-                          harmless=False, can_shoot=True, behavior="patrol")
+                          harmless=True, can_shoot=False, behavior="patrol")
             drone.speed = 1.5
-            drone.shoot_cooldown = 1500
-            drone.last_shot = 0
             self.tutorial_sprites.add(drone)
     
     def update_tutorial(self):
@@ -1185,16 +1183,10 @@ class Game:
                 self._spawn_survival_wave(int(expected_waves - waves_spawned))
                 self._survive_waves_spawned = int(expected_waves)
 
-            # Update survival drones movement
+            # Update survival drones movement (harmless, no shooting)
             for sprite in self.tutorial_sprites:
                 if isinstance(sprite, Enemy):
                     sprite.update()
-
-            # Survival drones shoot at player
-            current_time = pygame.time.get_ticks()
-            drones_count = sum(1 for s in self.tutorial_sprites if isinstance(s, Enemy))
-            if drones_count > 0 and current_time % 1000 < 50:
-                print(f"[DEBUG] SURVIVE: {drones_count} drones, bullets: {len(self.enemy_bullets)}, idx: {self.tutorial_current_idx}")
 
             # Player bullets hit survival drones
             for bullet in self.player_bullets:
@@ -1661,15 +1653,13 @@ class Game:
             enemy.update()
 
             # Enemy shooting
-            current_time = pygame.time.get_ticks()
-            if enemy.can_shoot() and random.random() < enemy.shoot_chance:
+            if enemy.can_shoot():
                 bullet = Bullet(enemy.rect.centerx,
                             enemy.rect.bottom,
                             self.enemy_bullet_img,
                             False,
                             self.screen_height)
                 self.enemy_bullets.add(bullet)
-                enemy.last_shot = current_time
                 if random.random() < 0.3:
                     self.sound.play("enemy_shoot")
 
