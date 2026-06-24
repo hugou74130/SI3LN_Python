@@ -656,11 +656,12 @@ class Boss(pygame.sprite.Sprite):
             self.flash_timer -= 1
             if self.flash_timer == 0:
                 self.image = self.base_image
+                self._flash_image = None
             else:
-                # Tint red briefly
-                tinted = self.base_image.copy()
-                tinted.fill((255, 0, 0, 100), special_flags=pygame.BLEND_RGBA_ADD)
-                self.image = tinted
+                if not hasattr(self, '_flash_image') or self._flash_image is None:
+                    self._flash_image = self.base_image.copy()
+                    self._flash_image.fill((255, 0, 0, 100), special_flags=pygame.BLEND_RGBA_ADD)
+                self.image = self._flash_image
 
     def can_shoot(self):
         """Check if boss can shoot."""

@@ -64,6 +64,11 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
         
+        # Performance caches
+        self._gradient_cache = {}
+        self._text_cache = {}
+        self._last_cache_frame = 0
+        
         # Game state
         self.state = STATE_MAIN_MENU
         self.prev_state = None
@@ -1093,7 +1098,8 @@ class Game:
             drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
                           harmless=False, can_shoot=True, behavior="patrol")
             drone.speed = 1.5
-            drone.shoot_cooldown = 2000  # Slow shooting
+            drone.shoot_cooldown = 1500
+            drone.last_shot = 0
             self.tutorial_sprites.add(drone)
     
     def update_tutorial(self):
@@ -1186,17 +1192,9 @@ class Game:
 
             # Survival drones shoot at player
             current_time = pygame.time.get_ticks()
-            for sprite in self.tutorial_sprites:
-                if isinstance(sprite, Enemy):
-                    if current_time - sprite.last_shot > sprite.shoot_cooldown:
-                        if random.random() < 0.02:  # 2% chance per frame to shoot
-                            bullet = Bullet(sprite.rect.centerx,
-                                            sprite.rect.bottom,
-                                            self.enemy_bullet_img,
-                                            False,
-                                            self.screen_height)
-                            self.enemy_bullets.add(bullet)
-                            sprite.last_shot = current_time
+            drones_count = sum(1 for s in self.tutorial_sprites if isinstance(s, Enemy))
+            if drones_count > 0 and current_time % 1000 < 50:
+                print(f"[DEBUG] SURVIVE: {drones_count} drones, bullets: {len(self.enemy_bullets)}, idx: {self.tutorial_current_idx}")
 
             # Player bullets hit survival drones
             for bullet in self.player_bullets:
@@ -1749,29 +1747,26 @@ class Game:
     
     def check_collisions(self):
         """Check all collisions"""
-        # Player bullets hit enemies
-        for bullet in self.player_bullets:
-            # Normal enemies
-            hits = pygame.sprite.spritecollide(bullet, self.enemies, True)
-            if hits:
-                bullet.kill()
-                self.enemies_killed += len(hits)
-                self.current_score += 10 * self.current_level
-                for enemy in hits:
+        # Player bullets hit enemies (bulk collision)
+        if self.player_bullets and self.enemies:
+            hits = pygame.sprite.groupcollide(self.player_bullets, self.enemies, True, True)
+            for bullet, enemies_hit in hits.items():
+                self.enemies_killed += len(enemies_hit)
+                self.current_score += 10 * self.current_level * len(enemies_hit)
+                for enemy in enemies_hit:
                     explosion = Explosion(enemy.rect.centerx, enemy.rect.centery,
                                         explosion_img=self.enemy_explosion_img)
                     self.explosions.add(explosion)
                     self.sound.play("explosion")
-                    # Chance de faire tomber un bonus
-                    if random.random() < 0.2:  # 20% de chance
+                    if random.random() < 0.2:
                         self.spawn_bonus(enemy.rect.centerx, enemy.rect.centery)
-                continue
 
-            # Boss
-            if self.boss and pygame.sprite.collide_rect(bullet, self.boss):
-                bullet.kill()
-                self.current_score += 5
-                boss_died = self.boss.take_damage(1)
+        # Player bullets hit boss
+        if self.boss and self.player_bullets:
+            hits = pygame.sprite.spritecollide(self.boss, self.player_bullets, True)
+            if hits:
+                self.current_score += 5 * len(hits)
+                boss_died = self.boss.take_damage(len(hits))
                 self.sound.play("hit")
                 if boss_died:
                     explosion = Explosion(self.boss.rect.centerx, self.boss.rect.centery,
@@ -1783,10 +1778,9 @@ class Game:
                     self.boss = None
                     self.state = STATE_LEVEL_WIN
                     self.sound.play("level_win")
-                continue
 
         # Enemy bullets hit player (respect Phase Dash and Shield)
-        if self.player and not self.player.is_invincible():
+        if self.player and not self.player.is_invincible() and self.enemy_bullets:
             hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
             if hits:
                 damage = self.player.take_damage(len(hits))
@@ -1801,7 +1795,7 @@ class Game:
                     self.trigger_game_over()
 
         # Enemies reach player (respect Phase Dash and Shield)
-        if self.player and not self.player.is_invincible():
+        if self.player and not self.player.is_invincible() and self.enemies:
             hits = pygame.sprite.spritecollide(self.player, self.enemies, True)
             if hits:
                 damage = self.player.take_damage(len(hits) * 2)
@@ -1819,22 +1813,21 @@ class Game:
                 self.trigger_game_over()
 
         # Player collects bonuses
-        if self.player:
+        if self.player and self.bonuses:
             collected_bonuses = pygame.sprite.spritecollide(self.player, self.bonuses, True)
             for bonus in collected_bonuses:
                 self.activate_bonus(bonus.bonus_type)
 
         # Special attacks hit player (respect Phase Dash and Shield)
-        if self.player and not self.player.is_invincible():
-            for attack in self.special_attacks:
-                if pygame.sprite.collide_rect(self.player, attack):
-                    damage = self.player.take_damage(attack.damage)
-                    self.lives -= damage
-                    self.sound.play("hit" if damage > 0 else "hit")
-                    attack.kill()
-                    if self.lives <= 0:
-                        self.sound.play("player_explosion")
-                        self.trigger_game_over()
+        if self.player and not self.player.is_invincible() and self.special_attacks:
+            hits = pygame.sprite.spritecollide(self.player, self.special_attacks, True)
+            if hits:
+                damage = sum(atk.damage for atk in hits)
+                self.lives -= damage
+                self.sound.play("hit" if damage > 0 else "hit")
+                if self.lives <= 0:
+                    self.sound.play("player_explosion")
+                    self.trigger_game_over()
     
     def draw(self):
         """Draw everything"""
@@ -2115,19 +2108,24 @@ class Game:
     def draw_hud(self):
         """Draw heads-up display — three status bars at top-right with enhanced visuals."""
         # ── Semi-transparent HUD background strip ──────────────────────────
-        hud_panel = pygame.Surface((self.screen_width, 75), pygame.SRCALPHA)
-        hud_panel.fill((0, 0, 0, 160))
-        self.screen.blit(hud_panel, (0, 0))
+        if not hasattr(self, '_hud_panel_cache'):
+            self._hud_panel_cache = pygame.Surface((self.screen_width, 75), pygame.SRCALPHA)
+            self._hud_panel_cache.fill((0, 0, 0, 160))
+        self.screen.blit(self._hud_panel_cache, (0, 0))
         # Bottom border line
         pygame.draw.line(self.screen, (50, 50, 70), (0, 75), (self.screen_width, 75), 2)
 
         # ── Left side: Score & Level ───────────────────────────────────────
-        score_text = self.font_small.render(f"Score: {self.current_score:,}", True, WHITE)
-        self.screen.blit(score_text, (20, 10))
+        score_key = f"score_{self.current_score}"
+        if score_key not in self._text_cache:
+            self._text_cache[score_key] = self.font_small.render(f"Score: {self.current_score:,}", True, WHITE)
+        self.screen.blit(self._text_cache[score_key], (20, 10))
 
-        level_text = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
-        level_rect = level_text.get_rect(center=(self.screen_width // 2, 28))
-        self.screen.blit(level_text, level_rect)
+        level_key = f"level_{self.current_level}"
+        if level_key not in self._text_cache:
+            self._text_cache[level_key] = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
+        level_rect = self._text_cache[level_key].get_rect(center=(self.screen_width // 2, 28))
+        self.screen.blit(self._text_cache[level_key], level_rect)
 
         # ── Bar configuration ──────────────────────────────────────────────
         bar_w, bar_h = 160, 16
@@ -2162,7 +2160,10 @@ class Game:
         border_color = (255, 100, 100) if self.lives <= 2 else WHITE
         pygame.draw.rect(self.screen, border_color, (bar_x, health_y, bar_w, bar_h), 1, border_radius=4)
         # Lives number centered on bar
-        lives_text = self.font_tiny.render(f"{self.lives}/{MAX_LIVES}", True, WHITE)
+        lives_key = f"lives_{self.lives}"
+        if lives_key not in self._text_cache:
+            self._text_cache[lives_key] = self.font_tiny.render(f"{self.lives}/{MAX_LIVES}", True, WHITE)
+        lives_text = self._text_cache[lives_key]
         text_x = bar_x + (bar_w - lives_text.get_width()) // 2
         self.screen.blit(lives_text, (text_x, health_y + 1))
 
@@ -2195,8 +2196,10 @@ class Game:
         pygame.draw.rect(self.screen, border_c, (bar_x, shield_y, bar_w, bar_h), 1, border_radius=4)
         # Shield value
         if self.player and shield_ratio > 0:
-            shield_val = self.font_tiny.render(f"{int(shield_ratio * 100)}%", True, (200, 230, 255))
-            self.screen.blit(shield_val, (bar_x + bar_w + 6, shield_y + 1))
+            shield_key = f"shield_{int(shield_ratio * 100)}"
+            if shield_key not in self._text_cache:
+                self._text_cache[shield_key] = self.font_tiny.render(f"{int(shield_ratio * 100)}%", True, (200, 230, 255))
+            self.screen.blit(self._text_cache[shield_key], (bar_x + bar_w + 6, shield_y + 1))
 
         # ── 3) Special attack charge bar (bottom) ──────────────────────────
         special_y = shield_y + bar_h + gap
@@ -2227,25 +2230,29 @@ class Game:
         if special_ready:
             ready_blink = (pygame.time.get_ticks() % 600) < 300
             if ready_blink:
-                ready_text = self.font_tiny.render("READY!", True, (255, 255, 0))
-                self.screen.blit(ready_text, (bar_x + bar_w + 6, special_y + 1))
+                ready_key = "special_ready"
+                if ready_key not in self._text_cache:
+                    self._text_cache[ready_key] = self.font_tiny.render("READY!", True, (255, 255, 0))
+                self.screen.blit(self._text_cache[ready_key], (bar_x + bar_w + 6, special_y + 1))
         else:
             charge_pct = int(charge * 100)
-            charge_text = self.font_tiny.render(f"{charge_pct}%", True, (200, 180, 220))
-            self.screen.blit(charge_text, (bar_x + bar_w + 6, special_y + 1))
+            charge_key = f"special_{charge_pct}"
+            if charge_key not in self._text_cache:
+                self._text_cache[charge_key] = self.font_tiny.render(f"{charge_pct}%", True, (200, 180, 220))
+            self.screen.blit(self._text_cache[charge_key], (bar_x + bar_w + 6, special_y + 1))
 
         # ── Active bonus indicators ───────────────────────────────────────
         bonus_x = 20
         bonus_y = 42
         
         if self.active_bonuses["shield"]["active"]:
-            # Shield bonus with animated border
-            bonus_surf = pygame.Surface((100, 28), pygame.SRCALPHA)
-            pygame.draw.rect(bonus_surf, (0, 100, 200, 180), (0, 0, 100, 28), border_radius=6)
-            pygame.draw.rect(bonus_surf, (100, 200, 255), (0, 0, 100, 28), 2, border_radius=6)
-            shield_bonus_text = self.font_tiny.render("🛡️ BOUCLIER", True, WHITE)
-            bonus_surf.blit(shield_bonus_text, (6, 6))
-            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
+            if not hasattr(self, '_shield_bonus_cache'):
+                self._shield_bonus_cache = pygame.Surface((100, 28), pygame.SRCALPHA)
+                pygame.draw.rect(self._shield_bonus_cache, (0, 100, 200, 180), (0, 0, 100, 28), border_radius=6)
+                pygame.draw.rect(self._shield_bonus_cache, (100, 200, 255), (0, 0, 100, 28), 2, border_radius=6)
+                shield_bonus_text = self.font_tiny.render("SHIELD", True, WHITE)
+                self._shield_bonus_cache.blit(shield_bonus_text, (6, 6))
+            self.screen.blit(self._shield_bonus_cache, (bonus_x, bonus_y))
             bonus_x += 110
 
         if self.active_bonuses["mega_shot"]["active"]:
@@ -2254,11 +2261,13 @@ class Game:
             duration = self.active_bonuses["mega_shot"].get("duration", 5000)
             mega_ratio = max(0.0, 1.0 - elapsed / duration) if duration > 0 else 0.0
             
-            bonus_surf = pygame.Surface((110, 28), pygame.SRCALPHA)
-            pygame.draw.rect(bonus_surf, (200, 150, 0, 180), (0, 0, 110, 28), border_radius=6)
-            pygame.draw.rect(bonus_surf, (255, 200, 0), (0, 0, 110, 28), 2, border_radius=6)
-            mega_bonus_text = self.font_tiny.render("⚡ MEGA", True, WHITE)
-            bonus_surf.blit(mega_bonus_text, (6, 2))
+            if not hasattr(self, '_mega_bonus_cache'):
+                self._mega_bonus_cache = pygame.Surface((110, 28), pygame.SRCALPHA)
+                pygame.draw.rect(self._mega_bonus_cache, (200, 150, 0, 180), (0, 0, 110, 28), border_radius=6)
+                pygame.draw.rect(self._mega_bonus_cache, (255, 200, 0), (0, 0, 110, 28), 2, border_radius=6)
+                mega_bonus_text = self.font_tiny.render("MEGA", True, WHITE)
+                self._mega_bonus_cache.blit(mega_bonus_text, (6, 2))
+            bonus_surf = self._mega_bonus_cache.copy()
             # Mini duration bar
             bar_w_mini = 90
             fill_w_mini = int(bar_w_mini * mega_ratio)
@@ -2327,18 +2336,18 @@ class Game:
         pygame.draw.rect(surface, color, rect, border_radius=radius)
 
     def _draw_gradient_bar(self, x, y, width, height, color_start, color_end, radius):
-        """Draw a horizontal gradient bar."""
-        for i in range(width):
-            ratio = i / max(width - 1, 1)
-            r = int(color_start[0] + (color_end[0] - color_start[0]) * ratio)
-            g = int(color_start[1] + (color_end[1] - color_start[1]) * ratio)
-            b = int(color_start[2] + (color_end[2] - color_start[2]) * ratio)
-            pygame.draw.line(self.screen, (r, g, b), (x + i, y), (x + i, y + height - 1))
-        # Top and bottom highlight for 3D effect
-        pygame.draw.line(self.screen, (min(255, r + 40), min(255, g + 40), min(255, b + 40)), 
-                        (x, y), (x + width - 1, y))
-        pygame.draw.line(self.screen, (max(0, r - 40), max(0, g - 40), max(0, b - 40)), 
-                        (x, y + height - 1), (x + width - 1, y + height - 1))
+        """Draw a horizontal gradient bar using a cached surface."""
+        cache_key = (width, height, color_start, color_end)
+        if cache_key not in self._gradient_cache:
+            bar_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+            for i in range(width):
+                ratio = i / max(width - 1, 1)
+                r = int(color_start[0] + (color_end[0] - color_start[0]) * ratio)
+                g = int(color_start[1] + (color_end[1] - color_start[1]) * ratio)
+                b = int(color_start[2] + (color_end[2] - color_start[2]) * ratio)
+                pygame.draw.line(bar_surf, (r, g, b), (i, 0), (i, height - 1))
+            self._gradient_cache[cache_key] = bar_surf
+        self.screen.blit(self._gradient_cache[cache_key], (x, y))
 
     def _draw_heart_icon(self, x, y, size, color):
         """Draw a simple heart icon."""
@@ -2413,12 +2422,15 @@ class Game:
     
     async def run(self):
         """Main game loop"""
+        fps = 60
+        clock = pygame.time.Clock()
         while self.running:
             self.handle_events()
             self.update()
             self.draw()
+            clock.tick(fps)
             await asyncio.sleep(0)  # yield to browser – rAF controls timing
-        
+
         pygame.quit()
         sys.exit()
 

@@ -104,8 +104,8 @@ class ResolutionManager:
             # Native resolution – no scaling needed, just offset
             display.blit(self._canvas, (self.off_x, self.off_y))
         else:
-            # smoothscale gives better quality than scale for most sizes
-            scaled = pygame.transform.smoothscale(
+            # Use fast scale instead of smoothscale for real-time rendering
+            scaled = pygame.transform.scale(
                 self._canvas, (self.scaled_w, self.scaled_h)
             )
             display.blit(scaled, (self.off_x, self.off_y))
