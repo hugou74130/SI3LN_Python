@@ -1,0 +1,2428 @@
+import asyncio
+"""
+Main Game class for SI3LN Game
+Integrates all screens and game logic
+"""
+import pygame
+import random
+import sys
+from constants import *
+from resolution_manager import ResolutionManager
+from utils import load_image, draw_text, load_enemy_images, load_boss_images, create_bullet_surface
+from auth import AuthSystem
+from scores import ScoreManager
+from profile import ProfileScreen
+from level_selector import LevelSelector
+from entities import Player, Enemy, Boss, Bullet, Explosion, Bonus, SpecialAttack, Waypoint, ExitPortal
+from ui_components import Button, InputField, ProfileIcon, Panel, PopUp
+from api_client import api_client  # REST-API integration (scores / sessions)
+from keybinding import KeybindingManager, KeybindingScreen
+from sound_manager import SoundManager
+
+
+class Game:
+    def __init__(self, wasm=False):
+        # pygame.init() is already called in main.py before creating Game.
+        # Calling it again here can confuse SDL/pygbag on WASM.
+        # pygame.init()
+
+        self._wasm = wasm
+
+        # Screen setup with resizable window
+        self.screen_info = pygame.display.Info()
+        self.screen_width = DEFAULT_SCREEN_WIDTH
+        self.screen_height = DEFAULT_SCREEN_HEIGHT
+
+        if wasm:
+            # Pygbag / WebAssembly: use a fixed framebuffer, no SCALED/RESIZABLE
+            # SCALED triggers an SDL2 OpenGL context that Emscripten can't
+            # provide, leading to "SDL2.ctx is null" → createImageData crash.
+            self._display = pygame.display.set_mode(
+                (self.screen_width, self.screen_height)
+            )
+        else:
+            # Native desktop: allow resizing with auto-scaling
+            self._display = pygame.display.set_mode(
+                (self.screen_width, self.screen_height),
+                pygame.SCALED | pygame.RESIZABLE
+            )
+        pygame.display.set_caption("S I 3 L N")
+
+        # ResolutionManager: scale factor S = min(W/1280, H/720)
+        # rm.canvas is the 1280×720 reference surface; all drawing targets it.
+        # rm.present(_display) scales + centres it on the real window each frame.
+        self.rm = ResolutionManager(self.screen_width, self.screen_height)
+        # self.screen always points to the reference canvas so every existing
+        # draw call (self.screen.blit / pygame.draw…) writes to reference space.
+        self.screen = self.rm.canvas
+
+        # screen_width / screen_height stay fixed at REF values from here on;
+        # actual window size is tracked exclusively in self.rm.
+        self.screen_width = REF_WIDTH
+        self.screen_height = REF_HEIGHT
+
+        self.clock = pygame.time.Clock()
+        self.running = True
+        
+        # Game state
+        self.state = STATE_MAIN_MENU
+        self.prev_state = None
+        
+        # Systems
+        self.auth = AuthSystem()
+        self.keybinding = KeybindingManager(DATA_DIR)
+        self.sound = SoundManager(enabled=True, volume=0.4)
+
+        # ── API integration ───────────────────────────────────────────
+        # If a JWT token is available (set by the web dashboard / env
+        # variable SI3LN_TOKEN) authenticate the player automatically.
+        self.api = api_client
+        if self.api.is_authenticated():
+            self.auth.current_user = self.api.get_username()
+            self.auth.guest_mode   = False
+        else:
+            self.auth.login_as_guest(0)
+        self._session_started = False
+        self._session_start_time = 0
+
+        # Initialize score manager with API client for cloud sync
+        self.score_manager = ScoreManager(api_client=self.api)
+        
+        # Game data
+        self.current_score = 0
+        self.current_level = 1
+        self.current_world = "Space"
+        self.lives = MAX_LIVES
+        self.selected_character = 0
+        self.enemies_killed = 0
+        
+        # Nouveaux systèmes
+        self.bonuses = pygame.sprite.Group()
+        self.active_bonuses = {
+            "shield": {"active": False, "timer": 0, "duration": 3000},
+            "mega_shot": {"active": False, "timer": 0, "duration": 5000}
+        }
+        
+        self.special_attacks = pygame.sprite.Group()
+        self.player_debuffs = {
+            "frozen": False,
+            "blinded": False, 
+            "rooted": False,
+            "timer": 0,
+            "duration": 0
+        }
+        
+        # Load assets
+        self.load_assets()
+        
+        # Initialize screens
+        self.profile_screen = ProfileScreen(self.screen, self.auth, self.players)
+        self.level_selector = LevelSelector(self.screen, WORLDS)
+
+        # Create UI
+        self.create_ui()
+
+        # Keybinding settings screen (needs fonts/UI ready)
+        self.keybinding_screen = KeybindingScreen(self, self.keybinding)
+        
+        # Game entities
+        self.player = None
+        self.boss = None
+        self.enemies = pygame.sprite.Group()
+        self.player_bullets = pygame.sprite.Group()
+        self.enemy_bullets = pygame.sprite.Group()
+        self.explosions = pygame.sprite.Group()
+        
+        # Profile icon
+        self.profile_icon = None
+        self.update_profile_icon()
+        
+        # Fullscreen toggle
+        self.is_fullscreen = False
+        
+        # ── Touch / mobile controls (mouse-based – pygbag maps touch→mouse) ─
+        self.touch_held = False            # True while mouse/finger is held down
+        self.touch_move_pos = None         # (x, y) target while dragging
+        self.touch_fire_held = False       # True while fire button is held
+        self.touch_auto_fire_timer = 0     # auto-repeat fire cooldown
+        self.touch_auto_fire_delay = 300   # ms between auto-fire shots
+        # Touch button zones (set in _build_touch_zones)
+        self.touch_fire_rect = None
+        self.touch_shield_rect = None
+        self.touch_mega_rect = None
+        self._build_touch_zones()
+        
+        # Timers pour les attaques spéciales
+        self.last_special_attack_time = 0
+        self.special_attack_cooldown = 10000  # 10 secondes entre les attaques
+        
+        # ── Special attack charge bar ──────────────────────────────────────
+        # The special attack charges over time; when full the player can use it.
+        self.special_charge = 0.0        # 0.0 → 1.0
+        self.special_charge_rate = 1.0 / self.special_attack_cooldown  # per ms
+        self.special_ready = False       # True when charge reaches 1.0
+        
+        # Boot Camp tutorial state
+        self.tutorial_objectives = [
+            TUTORIAL_OBJ_MOVE,
+            TUTORIAL_OBJ_SHOOT,
+            TUTORIAL_OBJ_COLLECT,
+            TUTORIAL_OBJ_SURVIVE,
+            TUTORIAL_OBJ_EXIT
+        ]
+        self.tutorial_current_idx = 0
+        self.tutorial_drones_killed = 0
+        self.tutorial_start_time = 0
+        self.tutorial_waypoint = None
+        self.tutorial_exit_portal = None
+        self.tutorial_powerup = None
+        self.tutorial_completed = False
+        self.tutorial_skip_button = Button(
+            REF_WIDTH - 150, 50, 140, 45, "PASSER",
+            self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE
+        )
+    
+    def load_assets(self):
+        """Load all game assets"""
+        # Fonts - Load Arcade Classic font
+        arcade_font_path = "assets/fonts/ArcadeClassic/ArcadeClassic.TTF"
+        try:
+            self.font_large = pygame.font.Font(arcade_font_path, 70)
+            self.font_medium = pygame.font.Font(arcade_font_path, 40)
+            self.font_small = pygame.font.Font(arcade_font_path, 28)
+            self.font_tiny = pygame.font.Font(arcade_font_path, 20)
+        except:
+            # Fallback to default font
+            self.font_large = pygame.font.Font(None, 70)
+            self.font_medium = pygame.font.Font(None, 40)
+            self.font_small = pygame.font.Font(None, 28)
+            self.font_tiny = pygame.font.Font(None, 20)
+        
+        # Backgrounds
+        self.menu_bg = load_image("worlds/home_page.jpg", 
+                                  (self.screen_width, self.screen_height), False)
+        
+        # Load all world backgrounds
+        self.world_backgrounds = {}
+        for world_key, world_data in WORLDS.items():
+            bg_path = f"worlds/{world_data['background']}"
+            self.world_backgrounds[world_key] = load_image(bg_path, 
+                                                          (self.screen_width, self.screen_height), False)
+        
+        # Current game background (will be set when level starts)
+        self.game_bg = self.world_backgrounds.get("Space")  # Default to Space
+        
+        # Players
+        self.players = []
+        for file in PLAYER_SPRITE_FILES:
+            img = load_image(f"players/{file}", (90, 90))
+            self.players.append(img)
+
+        # Load dash sound placeholder (Phantom Striker ability)
+        self.dash_sound = None
+        try:
+            self.dash_sound = pygame.mixer.Sound("assets/sounds/dash_placeholder.ogg")
+        except Exception:
+            pass  # Sound placeholder not required to exist
+        # Bullets - will be created dynamically per world
+        # Create default bullets (Space world colors)
+        default_colors = WORLDS["Space"]["bullet_colors"]
+        self.player_bullet_img = create_bullet_surface(
+            default_colors["player"][0], 
+            default_colors["player"][1], 
+            (15, 25)
+        )
+        self.enemy_bullet_img = create_bullet_surface(
+            default_colors["enemy"][0], 
+            default_colors["enemy"][1], 
+            (10, 20)
+        )
+        
+        # Enemies - will be loaded per world when level starts
+        self.enemy_images = {}  # Dictionary to store enemies per world
+        self.boss_images = {}    # Dictionary to store boss images per world
+        
+        # Preload enemies for all worlds
+        for world_key in WORLDS.keys():
+            self.enemy_images[world_key] = load_enemy_images(world_key, (60, 60))
+            self.boss_images[world_key] = load_boss_images(world_key, (100, 100))
+        
+        # Current world enemies (default to first world)
+        self.current_enemy_images = self.enemy_images.get("Space", [])
+    
+    def create_ui(self):
+        """Create all UI elements in reference (1280×720) space.
+
+        Portrait mode (rm.is_portrait) stacks elements that would
+        otherwise overflow a narrow screen vertically at the bottom-centre
+        instead of horizontally in the bottom-right corner.
+        """
+        cx = self.rm.cx   # 640 – horizontal centre of reference canvas
+        cy = self.rm.cy   # 360 – vertical centre of reference canvas
+
+        # Main menu buttons - Style arcade avec fond transparent
+        self.btn_start = Button(cx, cy - 40, 250, 70, "START",
+                               self.font_medium, bg_color=None, text_color=WHITE, border_color=WHITE)
+        self.btn_continue = Button(cx, cy + 50, 250, 70, "PLAY",
+                                   self.font_medium, bg_color=None, text_color=WHITE, border_color=WHITE)
+
+        if self.rm.is_portrait:
+            # Portrait: stack the utility buttons vertically at bottom-centre
+            self.btn_help = Button(cx, REF_HEIGHT - 235,
+                                  150, 50, "AIDE", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_controls = Button(cx, REF_HEIGHT - 175,
+                                       150, 50, "CONTROLES", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_game = Button(cx, REF_HEIGHT - 115,
+                                  150, 50, "GAME", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_quit = Button(cx, REF_HEIGHT - 55,
+                                  150, 50, "QUITTER", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+        else:
+            # Landscape: original bottom-right corner layout + controls bottom-left
+            self.btn_help = Button(REF_WIDTH - 100, REF_HEIGHT - 70,
+                                  150, 50, "AIDE", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_controls = Button(100, REF_HEIGHT - 70,
+                                       150, 50, "CONTROLES", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_game = Button(REF_WIDTH - 100, REF_HEIGHT - 130,
+                                  150, 50, "GAME", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+            self.btn_quit = Button(REF_WIDTH - 100, REF_HEIGHT - 190,
+                                  150, 50, "QUITTER", self.font_small, bg_color=None, text_color=WHITE, border_color=WHITE)
+        
+        # Login screen
+        self.login_username = InputField(cx - 150, cy - 80, 300, 45,
+                                        self.font_small, "Pseudo:")
+        self.login_password = InputField(cx - 150, cy, 300, 45,
+                                        self.font_small, "Mot de passe:", 
+                                        password=True)
+        self.btn_login = Button(cx, cy + 80, 200, 50, "CONNEXION",
+                               self.font_small, bg_color=GREEN)
+        self.btn_to_register = Button(cx, cy + 150, 250, 50, "Créer un compte",
+                                      self.font_small)
+        self.btn_guest = Button(cx, cy + 210, 250, 50, "Mode invité",
+                               self.font_small, bg_color=ORANGE)
+        
+        # Register screen
+        self.register_username = InputField(cx - 150, cy - 120, 300, 45,
+                                           self.font_small, "Pseudo:")
+        self.register_email = InputField(cx - 150, cy - 50, 300, 45,
+                                        self.font_small, "Email (optionnel):")
+        self.register_password = InputField(cx - 150, cy + 20, 300, 45,
+                                           self.font_small, "Mot de passe:",
+                                           password=True)
+        self.register_confirm = InputField(cx - 150, cy + 90, 300, 45,
+                                          self.font_small, "Confirmer:",
+                                          password=True)
+        self.btn_register = Button(cx, cy + 170, 200, 50, "S'INSCRIRE",
+                                   self.font_small, bg_color=GREEN)
+        self.btn_back_login = Button(cx, cy + 230, 200, 50, "RETOUR",
+                                     self.font_small)
+        
+        # Game over buttons – side-by-side in landscape, stacked in portrait
+        if self.rm.is_portrait:
+            self.btn_restart = Button(cx, REF_HEIGHT - 130,
+                                     200, 60, "RESTART", self.font_medium,
+                                     bg_color=ORANGE)
+            self.btn_finish = Button(cx, REF_HEIGHT - 60,
+                                    200, 60, "FINISH", self.font_medium,
+                                    bg_color=RED)
+        else:
+            self.btn_restart = Button(cx - 130, REF_HEIGHT - 80,
+                                     200, 60, "RESTART", self.font_medium,
+                                     bg_color=ORANGE)
+            self.btn_finish = Button(cx + 130, REF_HEIGHT - 80,
+                                    200, 60, "FINISH", self.font_medium,
+                                    bg_color=RED)
+        
+        # Level win buttons
+        self.btn_next_level = Button(cx, cy + 100, 250, 70, "NIVEAU SUIVANT",
+                                     self.font_medium, bg_color=GREEN)
+        self.btn_level_select = Button(cx, cy + 190, 250, 70, "CHOIX NIVEAU",
+                                       self.font_medium)
+        
+        # Tutorial complete buttons
+        self.btn_tutorial_continue = Button(cx, cy + 100, 280, 70, "CONTINUER",
+                                           self.font_medium, bg_color=GREEN)
+        self.btn_tutorial_replay = Button(cx, cy + 190, 280, 70, "REJOUER",
+                                         self.font_medium, bg_color=ORANGE)
+        
+        # Message display
+        self.message = ""
+        self.message_color = WHITE
+        self.message_timer = 0
+        
+        # Popups
+        help_content = [
+            "=== CONTROLES ===",
+            "",
+            "Deplacement: Fleches ou WASD",
+            "Tirer: ESPACE",
+            "Bouclier: B",
+            "Mega Tir: MAJ",
+            "Attaque Speciale: X",
+            "Phase Dash: CTRL (Phantom Striker uniquement)",
+            "Plein ecran: F11",
+            "Retour menu: ESC",
+            "",
+            "Detruisez tous les ennemis!",
+            "Evitez leurs tirs!"
+        ]
+        
+        game_content = [
+            "=== SI3LN ===",
+            "Space Invaders III Last Night",
+            "",
+            "Un jeu de tir spatial retro",
+            "avec 5 mondes differents!",
+            "",
+            "- Space World",
+            "- Desert World", 
+            "- Forest World",
+            "- Marine World",
+            "- Apocalyptic World",
+            "",
+            "Survivez aux vagues d'ennemis",
+            "et battez les boss!"
+        ]
+        
+        self.popup_help = PopUp(400, 500, "AIDE", help_content,
+                               REF_WIDTH, REF_HEIGHT, self.font_small, self.font_large)
+        self.popup_game = PopUp(400, 500, "A PROPOS DU JEU", game_content,
+                               REF_WIDTH, REF_HEIGHT, self.font_small, self.font_large)
+    
+    def update_profile_icon(self):
+        """Update profile icon with current character"""
+        if self.auth.guest_mode:
+            char_idx = self.auth.guest_character
+        elif self.auth.current_user:
+            char_idx = self.auth.get_user_data("selected_character") or 0
+        else:
+            char_idx = 0
+        
+        if char_idx < len(self.players):
+            icon_x = self.screen_width - PROFILE_ICON_SIZE - PROFILE_ICON_POSITION[0]
+            icon_y = PROFILE_ICON_POSITION[1]
+            self.profile_icon = ProfileIcon(icon_x, icon_y, PROFILE_ICON_SIZE,
+                                           self.players[char_idx])
+        
+        self.selected_character = char_idx
+    
+    def show_message(self, text, color=WHITE, duration=180):
+        """Show a temporary message"""
+        self.message = text
+        self.message_color = color
+        self.message_timer = duration
+    
+    def _transform_event(self, event: pygame.event.Event) -> pygame.event.Event:
+        """Return a copy of a mouse event with pos in reference (canvas) space.
+
+        MOUSEBUTTONDOWN / UP / MOTION events carry screen-space coordinates.
+        Sub-systems (LevelSelector, ProfileScreen) store their rects in
+        reference space (1280×720 canvas), so we must remap before dispatch.
+
+        Non-mouse events are returned unchanged.
+        """
+        if event.type not in (
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEBUTTONUP,
+            pygame.MOUSEMOTION,
+        ):
+            return event
+        if not hasattr(event, "pos"):
+            return event
+
+        ref_pos = self.rm.screen_to_ref(*event.pos)
+        attrs: dict = {"pos": ref_pos}
+        for attr in ("button", "buttons", "rel", "touch", "which"):
+            if hasattr(event, attr):
+                attrs[attr] = getattr(event, attr)
+        return pygame.event.Event(event.type, attrs)
+
+    def handle_events(self):
+        """Handle all game events"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+                return
+            
+            # Handle window resize
+            if event.type == pygame.VIDEORESIZE:
+                self.handle_resize(event.w, event.h)
+            
+            # ── Track mouse/touch held state (for drag-to-move) ───────
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                self.touch_held = True
+            elif event.type == pygame.MOUSEBUTTONUP:
+                self.touch_held = False
+                self.touch_move_pos = None
+                self.touch_fire_held = False
+            elif event.type == pygame.MOUSEMOTION and self.touch_held:
+                self.touch_move_pos = event.pos
+            
+            # Handle fullscreen toggle and global back key
+            if event.type == pygame.KEYDOWN:
+                if self.keybinding.is_action_key(event.key, "fullscreen"):
+                    self.toggle_fullscreen()
+                elif self.keybinding.is_action_key(event.key, "menu_back"):
+                    if self.profile_screen.active:
+                        self.profile_screen.close()
+                    elif self.state == STATE_GAMEPLAY:
+                        self.state = STATE_LEVEL_SELECT
+            
+            # Profile screen has priority
+            if self.profile_screen.active:
+                if self.profile_screen.handle_event(self._transform_event(event)):
+                    self.update_profile_icon()
+                continue
+
+            # Keybinding settings screen
+            if self.keybinding_screen.active:
+                self.keybinding_screen.handle_event(event)
+                continue
+
+            # Level selector
+            if self.level_selector.active:
+                result = self.level_selector.handle_event(self._transform_event(event))
+                if result:
+                    print(f"[DEBUG] Level selector returned: {result}")
+                    if result[0] == "START_LEVEL":
+                        self.current_world = result[1]
+                        self.current_level = result[2]
+                        print(f"[DEBUG] Starting world={self.current_world}, level={self.current_level}")
+                        self.level_selector.close()
+                        if self.current_world == "BootCamp" and WORLDS[self.current_world].get("is_tutorial"):
+                            self.start_tutorial()
+                        else:
+                            self.start_level()
+                    elif result[0] == "BACK":
+                        self.level_selector.close()
+                        self.state = STATE_MAIN_MENU
+                continue
+            
+            # State-specific event handling
+            if self.state == STATE_MAIN_MENU:
+                self.handle_main_menu_events(event)
+            elif self.state in (STATE_LOGIN, STATE_REGISTER):
+                # Auth is handled by the web dashboard – redirect to main menu
+                self.state = STATE_MAIN_MENU
+            elif self.state == STATE_GAMEPLAY:
+                self.handle_gameplay_events(event)
+            elif self.state == STATE_TUTORIAL:
+                self.handle_tutorial_events(event)
+            elif self.state == STATE_TUTORIAL_COMPLETE:
+                self.handle_tutorial_complete_events(event)
+            elif self.state == STATE_GAME_OVER:
+                self.handle_game_over_events(event)
+            elif self.state == STATE_LEVEL_WIN:
+                self.handle_level_win_events(event)
+    
+    def handle_main_menu_events(self, event):
+        """Handle main menu events"""
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            if self.btn_start.is_clicked(pos):
+                self.auth.login_as_guest(self.selected_character)
+                self.update_profile_icon()
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+            
+            elif self.btn_continue.is_clicked(pos):
+                # Login is handled by the web dashboard – go straight to play
+                if self.api.is_authenticated():
+                    self.update_profile_icon()
+                else:
+                    self.auth.login_as_guest(self.selected_character)
+                    self.update_profile_icon()
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+            
+            elif self.btn_controls.is_clicked(pos):
+                self.keybinding_screen.open()
+
+            elif self.btn_help.is_clicked(pos):
+                self.popup_help.open()
+
+            elif self.btn_game.is_clicked(pos):
+                self.popup_game.open()
+
+            elif self.btn_quit.is_clicked(pos):
+                self.running = False
+            
+            # Check popup clicks
+            if self.popup_help.handle_click(pos) or self.popup_game.handle_click(pos):
+                pass
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.profile_screen.open()
+    
+    def handle_login_events(self, event):
+        """Handle login screen events"""
+        self.login_username.handle_event(event)
+        self.login_password.handle_event(event)
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = event.pos
+            
+            if self.btn_login.is_clicked(pos):
+                username = self.login_username.get_text().strip()
+                password = self.login_password.get_text()
+                
+                success, msg = self.auth.login(username, password)
+                if success:
+                    self.show_message(msg, GREEN)
+                    self.update_profile_icon()
+                    self.level_selector.open()
+                    self.state = STATE_LEVEL_SELECT
+                    self.login_username.clear()
+                    self.login_password.clear()
+                else:
+                    self.show_message(msg, RED)
+            
+            elif self.btn_to_register.is_clicked(pos):
+                self.state = STATE_REGISTER
+                self.login_username.clear()
+                self.login_password.clear()
+            
+            elif self.btn_guest.is_clicked(pos):
+                self.auth.login_as_guest(self.selected_character)
+                self.update_profile_icon()
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+        
+        # Back key to return to main menu
+        if event.type == pygame.KEYDOWN:
+            if self.keybinding.is_action_key(event.key, "menu_back"):
+                self.state = STATE_MAIN_MENU
+                self.login_username.clear()
+                self.login_password.clear()
+    
+    def handle_register_events(self, event):
+        """Handle register screen events"""
+        self.register_username.handle_event(event)
+        self.register_email.handle_event(event)
+        self.register_password.handle_event(event)
+        self.register_confirm.handle_event(event)
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = event.pos
+            
+            if self.btn_register.is_clicked(pos):
+                username = self.register_username.get_text().strip()
+                email = self.register_email.get_text().strip()
+                password = self.register_password.get_text()
+                confirm = self.register_confirm.get_text()
+                
+                if password != confirm:
+                    self.show_message("Les mots de passe ne correspondent pas", RED)
+                    return
+                
+                success, msg = self.auth.register(username, password, email)
+                if success:
+                    self.show_message(msg, GREEN)
+                    self.auth.login(username, password)
+                    self.update_profile_icon()
+                    self.state = STATE_MAIN_MENU
+                    self.register_username.clear()
+                    self.register_email.clear()
+                    self.register_password.clear()
+                    self.register_confirm.clear()
+                else:
+                    self.show_message(msg, RED)
+            
+            elif self.btn_back_login.is_clicked(pos):
+                self.state = STATE_LOGIN
+                self.register_username.clear()
+                self.register_email.clear()
+                self.register_password.clear()
+                self.register_confirm.clear()
+        
+        # Back key to return to login
+        if event.type == pygame.KEYDOWN:
+            if self.keybinding.is_action_key(event.key, "menu_back"):
+                self.state = STATE_LOGIN
+    
+    def handle_gameplay_events(self, event):
+        """Handle gameplay events"""
+        if event.type == pygame.KEYDOWN:
+            if self.keybinding.is_action_key(event.key, "shoot"):
+                self.shoot_player_bullet()
+
+            # Bonus controls (keybinding-aware)
+            if self.keybinding.is_action_key(event.key, "shield") and self.active_bonuses["shield"]["active"]:
+                self.activate_shield()
+
+            if self.keybinding.is_action_key(event.key, "mega_shot") and self.active_bonuses["mega_shot"]["active"]:
+                self.mega_shot()
+
+            # Special attack (charge-based, press X to unleash)
+            if self.keybinding.is_action_key(event.key, "special_attack"):
+                self.use_special_attack()
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+
+            # On-screen touch buttons (fire / shield / mega)
+            if self.touch_fire_rect and self.touch_fire_rect.collidepoint(pos):
+                self.touch_fire_held = True
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = pygame.time.get_ticks()
+                return  # Don't process as movement
+            if self.touch_shield_rect and self.touch_shield_rect.collidepoint(pos):
+                if self.active_bonuses["shield"]["active"]:
+                    self.activate_shield()
+                return
+            if self.touch_mega_rect and self.touch_mega_rect.collidepoint(pos):
+                if self.active_bonuses["mega_shot"]["active"]:
+                    self.mega_shot()
+                return
+
+            # Start dragging to move
+            self.touch_move_pos = pos
+
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.prev_state = self.state
+                self.profile_screen.open()
+    
+    def handle_game_over_events(self, event):
+        """Handle game over screen events"""
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            if self.btn_restart.is_clicked(pos):
+                self._end_api_session()
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+            
+            elif self.btn_finish.is_clicked(pos):
+                self._end_api_session()
+                self.state = STATE_MAIN_MENU
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.profile_screen.open()
+    
+    def handle_level_win_events(self, event):
+        """Handle level win screen events"""
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            if self.btn_next_level.is_clicked(pos):
+                # Check Phantom Striker unlock conditions on level completion
+                self._check_character_unlocks()
+                self.current_level += 1
+                max_levels = WORLDS[self.current_world]["levels"]
+                if self.current_level > max_levels:
+                    self._end_api_session()
+                    self.show_message("Tous les niveaux terminés!", GREEN)
+                    self.level_selector.open()
+                    self.state = STATE_LEVEL_SELECT
+                else:
+                    self.start_level()
+            
+            elif self.btn_level_select.is_clicked(pos):
+                self._check_character_unlocks()
+                self._end_api_session()
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.profile_screen.open()
+    
+    def _end_api_session(self):
+        """End the current API game session (if any) and reset tracking."""
+        if self._session_started and self.api.is_authenticated():
+            duration = (pygame.time.get_ticks() - self._session_start_time) // 1000
+            self.api.end_session(
+                score=self.current_score,
+                level=self.current_level,
+                enemies_killed=self.enemies_killed,
+                duration=duration,
+            )
+        self._session_started = False
+        self._session_start_time = 0
+
+    def _submit_leaderboard(self):
+        """Submit the completed run to the persistent leaderboard."""
+        if not self.api.is_authenticated():
+            return None
+        duration = 0
+        if self._session_started:
+            duration = (pygame.time.get_ticks() - self._session_start_time) // 1000
+        # Build a simple deterministic replay hash from key game stats
+        import hashlib
+        replay_data = f"{self.current_score}:{self.enemies_killed}:{self.current_level}:{duration}:{self.selected_character}"
+        replay_hash = hashlib.sha256(replay_data.encode()).hexdigest()[:32]
+        from constants import WORLD_IDS
+        world_id = WORLD_IDS.get(self.current_world, 1)
+        # Count active bonuses as power-ups used
+        powerups_used = sum(1 for b in self.active_bonuses.values() if b.get("active", False))
+        # Estimate accuracy (basic heuristic)
+        bullets_fired = max(self.enemies_killed, 1)
+        accuracy = 100.0 if bullets_fired == 0 else (self.enemies_killed / bullets_fired) * 100
+        return self.api.submit_leaderboard(
+            score=self.current_score,
+            world_id=world_id,
+            level_id=self.current_level,
+            character_used=CHARACTER_NAMES[self.selected_character] if self.selected_character < len(CHARACTER_NAMES) else "",
+            duration_sec=duration,
+            accuracy_pct=round(accuracy, 2),
+            enemies_killed=self.enemies_killed,
+            powerups_used=powerups_used,
+            bullets_fired=bullets_fired,
+            replay_hash=replay_hash,
+        )
+
+    def _check_character_unlocks(self):
+        """Check and unlock characters based on current session performance."""
+        if not self.auth.current_user or self.auth.guest_mode:
+            return
+        
+        user_data = self.auth.get_user_data()
+        if not user_data:
+            return
+        
+        unlocked = user_data.get("unlocked_characters", [0])
+        achievements = user_data.get("achievements", [])
+        levels_completed = user_data.get("levels_completed", {})
+        high_score = user_data.get("high_score", 0)
+        
+        # Check Phantom Striker (character 7) unlock conditions:
+        # - Reach Level 3 in any world AND score 5000+ in a single run
+        if 7 not in unlocked:
+            # Check if any world has level >= 3 completed
+            max_level_reached = max(levels_completed.values(), default=0)
+            score_met = self.current_score >= 5000 or high_score >= 5000
+            level_met = max_level_reached >= 3 or self.current_level >= 3
+            
+            if level_met and score_met:
+                unlocked.append(7)
+                self.auth.update_user_data(unlocked_characters=unlocked)
+                
+                # Grant "Phantom Unlocked" achievement if not already granted
+                if "Phantom Unlocked" not in achievements:
+                    achievements.append("Phantom Unlocked")
+                    self.auth.update_user_data(achievements=achievements)
+                    self.show_message("🎉 Phantom Striker débloqué!", GREEN)
+                else:
+                    self.show_message("Phantom Striker débloqué!", GREEN)
+                
+                # Sync unlock to API if authenticated
+                if self.api.is_authenticated():
+                    try:
+                        self.api.unlock_character(7)
+                        self.api.grant_achievement("Phantom Unlocked")
+                    except Exception:
+                        pass  # API sync is best-effort
+
+    def trigger_game_over(self):
+        """Centralised game-over handler: save score locally and set state."""
+        self.sound.play("game_over")
+        self.player = None
+        username = self.auth.current_user or "Guest"
+        if username != "Guest":
+            self.score_manager.add_score(
+                username, self.current_score, self.current_level
+            )
+            self.auth.update_user_data(
+                high_score=max(self.current_score,
+                               self.auth.get_user_data("high_score") or 0)
+            )
+            # Submit to persistent leaderboard (best-effort)
+            try:
+                self._submit_leaderboard()
+            except Exception:
+                pass
+        self.state = STATE_GAME_OVER
+
+    def start_level(self):
+        """Start a new level"""
+        # Open (or re-use) an API game session
+        if self.api.is_authenticated() and not self._session_started:
+            from constants import WORLD_IDS
+            world_id = WORLD_IDS.get(self.current_world, 1)
+            self.api.start_session(world_id=world_id)
+            self._session_started = True
+            self._session_start_time = pygame.time.get_ticks()
+            self.enemies_killed = 0
+        print(f"[DEBUG] Starting level {self.current_level} in world {self.current_world}")
+        self.state = STATE_GAMEPLAY
+        self.lives = MAX_LIVES
+        
+        # Set the background for the current world
+        self.game_bg = self.world_backgrounds.get(self.current_world, self.world_backgrounds["Space"])
+        print(f"[DEBUG] Background set for world: {self.current_world}")
+        
+        # Create bullets with world-specific colors
+        if self.current_world in WORLDS and "bullet_colors" in WORLDS[self.current_world]:
+            colors = WORLDS[self.current_world]["bullet_colors"]
+            
+            self.player_bullet_img = create_bullet_surface(
+                colors["player"][0], 
+                colors["player"][1], 
+                (15, 25)
+            )
+            
+            self.enemy_bullet_img = create_bullet_surface(
+                colors["enemy"][0], 
+                colors["enemy"][1], 
+                (10, 20)
+            )
+            
+            print(f"[DEBUG] Bullets created with colors for {self.current_world}")
+        
+        # Load explosion images specific to the world
+        explosion_file_map = {
+            "Space": ("sprites/player/pb_space.png", "sprites/ennemy/eb_space.png"),
+            "Desert": ("sprites/player/pb_desert.png", "sprites/ennemy/eb_desert.png"),
+            "Forest": ("sprites/player/pb_forest.png", "sprites/ennemy/eb_forest.png"),
+            "Marine": ("sprites/player/pb_marine.png", "sprites/ennemy/eb_marine.png"),
+            "Apocalyptic": ("sprites/player/pb_apocaliptyc.png", "sprites/ennemy/eb_apocaliptyc.png"),
+            "BootCamp": ("sprites/player/pb_space.png", "sprites/ennemy/eb_space.png")
+        }
+        
+        if self.current_world in explosion_file_map:
+            player_exp_path, enemy_exp_path = explosion_file_map[self.current_world]
+            try:
+                self.player_explosion_img = load_image(player_exp_path, (60, 60))
+                self.enemy_explosion_img = load_image(enemy_exp_path, (60, 60))
+                print(f"[DEBUG] Loaded explosion images for {self.current_world}")
+            except Exception as e:
+                print(f"[DEBUG] Could not load explosion images: {e}")
+                self.player_explosion_img = None
+                self.enemy_explosion_img = None
+        else:
+            self.player_explosion_img = None
+            self.enemy_explosion_img = None
+        
+        # Clear all entities
+        self.enemies.empty()
+        self.boss = None
+        self.player_bullets.empty()
+        self.enemy_bullets.empty()
+        self.explosions.empty()
+        self.bonuses.empty()
+        self.special_attacks.empty()
+        
+        # Reset debuffs
+        self.player_debuffs = {
+            "frozen": False,
+            "blinded": False, 
+            "rooted": False,
+            "timer": 0,
+            "duration": 0
+        }
+        
+        # Create player
+        player_img = self.players[self.selected_character]
+        self.player = Player(self.screen_width // 2,
+                            self.screen_height - 100,
+                            player_img,
+                            self.screen_width,
+                            self.screen_height,
+                            character_idx=self.selected_character,
+                            keybinding_manager=self.keybinding,
+                            sound_manager=self.sound)
+
+        # During tutorial, allow player to move higher up the screen
+        if self.state == STATE_TUTORIAL:
+            self.player.min_y = 60
+
+        # Reset special attack charge on new level
+        self.special_charge = 0.0
+        self.special_ready = False
+
+        # Create enemies
+        print(f"[DEBUG] Spawning enemies...")
+        self.spawn_enemies()
+        print(f"[DEBUG] Level started successfully! Enemies: {len(self.enemies)}")
+    
+    def start_tutorial(self):
+        """Start the Boot Camp tutorial"""
+        print("[DEBUG] Starting Boot Camp tutorial")
+        self.state = STATE_TUTORIAL
+        self.current_world = "BootCamp"
+        self.current_level = 1
+        self.current_score = 0
+        self.lives = MAX_LIVES
+        self.enemies_killed = 0
+        self.tutorial_drones_killed = 0
+        self.tutorial_current_idx = 0
+        self.tutorial_completed = False
+        self.tutorial_start_time = pygame.time.get_ticks()
+        self.tutorial_objective_start_time = self.tutorial_start_time
+        
+        # Set background
+        self.game_bg = self.world_backgrounds.get("BootCamp", self.world_backgrounds.get("Space"))
+        
+        # Ensure explosion images exist (use fallback if not loaded yet)
+        if not hasattr(self, "enemy_explosion_img"):
+            self.enemy_explosion_img = None
+        if not hasattr(self, "player_explosion_img"):
+            self.player_explosion_img = None
+        
+        # BootCamp bullet colors
+        colors = WORLDS["BootCamp"]["bullet_colors"]
+        self.player_bullet_img = create_bullet_surface(
+            colors["player"][0], colors["player"][1], (15, 25)
+        )
+        self.enemy_bullet_img = create_bullet_surface(
+            colors["enemy"][0], colors["enemy"][1], (10, 20)
+        )
+        
+        # Clear entity groups
+        self.enemies.empty()
+        self.player_bullets.empty()
+        self.enemy_bullets.empty()
+        self.explosions.empty()
+        self.bonuses.empty()
+        self.special_attacks.empty()
+        
+        # Reset debuffs
+        self.player_debuffs = {
+            "frozen": False,
+            "blinded": False,
+            "rooted": False,
+            "timer": 0,
+            "duration": 0
+        }
+        
+        # Reset bonuses
+        self.active_bonuses = {
+            "shield": {"active": False, "timer": 0, "duration": 3000},
+            "mega_shot": {"active": False, "timer": 0, "duration": 5000}
+        }
+        
+        # Create player
+        player_img = self.players[self.selected_character]
+        self.player = Player(self.screen_width // 2,
+                            self.screen_height - 100,
+                            player_img,
+                            self.screen_width,
+                            self.screen_height,
+                            character_idx=self.selected_character,
+                            keybinding_manager=self.keybinding,
+                            sound_manager=self.sound)
+
+        # During tutorial, allow player to move higher up the screen
+        if self.state == STATE_TUTORIAL:
+            self.player.min_y = 60
+
+        # Reset special attack charge on new level
+        self.special_charge = 0.0
+        self.special_ready = False
+
+        # Create enemies
+        print(f"[DEBUG] Spawning enemies...")
+        self.spawn_enemies()
+        print(f"[DEBUG] Level started successfully! Enemies: {len(self.enemies)}")
+        # Tutorial sprites group
+        self.tutorial_sprites = pygame.sprite.Group()
+        self.tutorial_waypoint = None
+        self.tutorial_exit_portal = None
+        self.tutorial_powerup = None
+        
+        # Spawn waypoint at center-left
+        self.tutorial_waypoint = Waypoint(250, self.screen_height // 2)
+        self.tutorial_sprites.add(self.tutorial_waypoint)
+        
+        # Spawn harmless target drones at top (standard Enemy in tutorial mode)
+        drone_y = 100
+        spacing = (self.screen_width - 300) // max(TUTORIAL_DRONE_COUNT - 1, 1)
+        enemy_img = self.enemy_images.get("BootCamp")
+        if not enemy_img:
+            # Fallback to Space enemy if Boot Camp assets are missing
+            enemy_img = self.enemy_images.get("Space", [])
+        if enemy_img:
+            enemy_img = enemy_img[0]
+        else:
+            # Last-resort fallback surface
+            enemy_img = pygame.Surface((50, 50), pygame.SRCALPHA)
+            pygame.draw.circle(enemy_img, HOLO_BLUE, (25, 25), 20, 3)
+            pygame.draw.line(enemy_img, HOLO_GREEN, (10, 25), (40, 25), 2)
+            pygame.draw.line(enemy_img, HOLO_GREEN, (25, 10), (25, 40), 2)
+        for i in range(TUTORIAL_DRONE_COUNT):
+            x = 150 + i * spacing
+            y = drone_y + (i % 2) * 60
+            drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
+                          harmless=True, can_shoot=False, behavior="patrol")
+            self.tutorial_sprites.add(drone)
+        
+        # Spawn power-up (stationary for tutorial) — place it within reach
+        self.tutorial_powerup = Bonus(self.screen_width // 2, 300, "shield")
+        self.tutorial_powerup.speed = 0
+        self.tutorial_sprites.add(self.tutorial_powerup)
+        
+        self.show_message("OBJECTIF: Deplacez-vous vers le point lumineux!", HOLO_BLUE, 300)
+    
+    def _get_tutorial_objective_text(self):
+        """Get display text for current tutorial objective"""
+        if self.tutorial_current_idx >= len(self.tutorial_objectives):
+            return "Boot Camp termine!"
+        obj = self.tutorial_objectives[self.tutorial_current_idx]
+        texts = {
+            TUTORIAL_OBJ_MOVE: "Deplacez-vous vers le point lumineux (fleches/WASD ou glisser)",
+            TUTORIAL_OBJ_SHOOT: "Tirez sur les drones (ESPACE ou bouton FIRE)",
+            TUTORIAL_OBJ_COLLECT: "Ramassez le bonus bleu",
+            TUTORIAL_OBJ_SURVIVE: "Survivez 30 secondes",
+            TUTORIAL_OBJ_EXIT: "Atteignez le portail de sortie"
+        }
+        return f"OBJECTIF: {texts.get(obj, obj)}"
+    
+    def _advance_tutorial_objective(self, next_description, color=WHITE):
+        """Advance to the next tutorial objective and show a message"""
+        self.tutorial_current_idx += 1
+        self.tutorial_objective_start_time = pygame.time.get_ticks()
+        if self.tutorial_current_idx < len(self.tutorial_objectives):
+            self.show_message(next_description, color, 300)
+    
+    def _spawn_survival_wave(self, count=1):
+        """Spawn a wave of enemy drones for the survival phase."""
+        enemy_img = self.enemy_images.get("BootCamp")
+        if not enemy_img:
+            enemy_img = self.enemy_images.get("Space", [])
+        if enemy_img:
+            enemy_img = enemy_img[0]
+        else:
+            enemy_img = pygame.Surface((50, 50), pygame.SRCALPHA)
+            pygame.draw.circle(enemy_img, HOLO_BLUE, (25, 25), 20, 3)
+        for i in range(count * 3):
+            x = random.randint(100, self.screen_width - 100)
+            y = random.randint(60, 200)
+            drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
+                          harmless=False, can_shoot=True, behavior="patrol")
+            drone.speed = 1.5
+            drone.shoot_cooldown = 2000  # Slow shooting
+            self.tutorial_sprites.add(drone)
+    
+    def update_tutorial(self):
+        """Update Boot Camp tutorial logic"""
+        if not self.player:
+            return
+        
+        # Update player
+        keys = pygame.key.get_pressed()
+        if not self.player_debuffs["rooted"]:
+            self.player.update(keys)
+            self.player.update_shield()
+            if self.touch_held and self.touch_move_pos and not self.touch_fire_held:
+                self.player.move_toward(*self.touch_move_pos)
+        
+        # Touch auto-fire
+        if self.touch_fire_held:
+            now = pygame.time.get_ticks()
+            if now - self.touch_auto_fire_timer >= self.touch_auto_fire_delay:
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = now
+        
+        # Update bullets, explosions and tutorial sprites
+        self.player_bullets.update()
+        self.explosions.update()
+        self.tutorial_sprites.update()
+        
+        # No death penalty during tutorial
+        if TUTORIAL_NO_DEATH_PENALTY:
+            self.lives = MAX_LIVES
+        
+        if self.tutorial_current_idx >= len(self.tutorial_objectives):
+            return
+        
+        current_obj = self.tutorial_objectives[self.tutorial_current_idx]
+        
+        if current_obj == TUTORIAL_OBJ_MOVE:
+            if self.tutorial_waypoint and self.player:
+                dx = self.player.rect.centerx - self.tutorial_waypoint.rect.centerx
+                dy = self.player.rect.centery - self.tutorial_waypoint.rect.centery
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < 50:
+                    self.tutorial_waypoint.kill()
+                    self.tutorial_waypoint = None
+                    self._advance_tutorial_objective(
+                        "OBJECTIF: Tirez sur les drones!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_SHOOT:
+            # Player bullets vs target drones
+            for bullet in self.player_bullets:
+                hits = pygame.sprite.spritecollide(bullet, self.tutorial_sprites, False)
+                for sprite in hits:
+                    if isinstance(sprite, Enemy) and sprite.harmless:
+                        sprite.kill()
+                        bullet.kill()
+                        self.tutorial_drones_killed += 1
+                        self.enemies_killed += 1
+                        self.current_score += 10
+                        explosion = Explosion(sprite.rect.centerx, sprite.rect.centery,
+                                            explosion_img=self.enemy_explosion_img)
+                        self.explosions.add(explosion)
+                        break
+            if self.tutorial_drones_killed >= TUTORIAL_DRONE_COUNT:
+                self._advance_tutorial_objective(
+                    "OBJECTIF: Ramassez le bonus bleu!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_COLLECT:
+            if self.tutorial_powerup and self.player:
+                if pygame.sprite.collide_rect(self.player, self.tutorial_powerup):
+                    bonus_type = self.tutorial_powerup.bonus_type
+                    self.tutorial_powerup.kill()
+                    self.activate_bonus(bonus_type)
+                    self._advance_tutorial_objective(
+                        "OBJECTIF: Survivez 30 secondes!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_SURVIVE:
+            # Spawn survival waves every 5 seconds
+            elapsed = pygame.time.get_ticks() - self.tutorial_objective_start_time
+            wave_interval = 5000  # 5 seconds between waves
+            waves_spawned = getattr(self, '_survive_waves_spawned', 0)
+            expected_waves = elapsed // wave_interval
+            if expected_waves > waves_spawned:
+                self._spawn_survival_wave(int(expected_waves - waves_spawned))
+                self._survive_waves_spawned = int(expected_waves)
+
+            # Update survival drones movement
+            for sprite in self.tutorial_sprites:
+                if isinstance(sprite, Enemy):
+                    sprite.update()
+
+            # Survival drones shoot at player
+            current_time = pygame.time.get_ticks()
+            for sprite in self.tutorial_sprites:
+                if isinstance(sprite, Enemy):
+                    if current_time - sprite.last_shot > sprite.shoot_cooldown:
+                        if random.random() < 0.02:  # 2% chance per frame to shoot
+                            bullet = Bullet(sprite.rect.centerx,
+                                            sprite.rect.bottom,
+                                            self.enemy_bullet_img,
+                                            False,
+                                            self.screen_height)
+                            self.enemy_bullets.add(bullet)
+                            sprite.last_shot = current_time
+
+            # Player bullets hit survival drones
+            for bullet in self.player_bullets:
+                hits = pygame.sprite.spritecollide(bullet, self.tutorial_sprites, False)
+                for sprite in hits:
+                    if isinstance(sprite, Enemy):
+                        sprite.kill()
+                        bullet.kill()
+                        self.enemies_killed += 1
+                        self.current_score += 10
+                        explosion = Explosion(sprite.rect.centerx, sprite.rect.centery,
+                                              explosion_img=self.enemy_explosion_img)
+                        self.explosions.add(explosion)
+                        self.sound.play("explosion")
+                        break
+
+            # Survival drones collide with player
+            if self.player and not self.player.is_invincible():
+                hits = pygame.sprite.spritecollide(self.player, self.tutorial_sprites, False)
+                for sprite in hits:
+                    if isinstance(sprite, Enemy):
+                        damage = self.player.take_damage(1)
+                        self.lives -= damage
+                        sprite.kill()
+                        self.sound.play("hit")
+                        if self.lives <= 0 and TUTORIAL_NO_DEATH_PENALTY:
+                            self.lives = MAX_LIVES
+
+            # Enemy bullets from survival drones hit player
+            if self.player and not self.player.is_invincible():
+                bullet_hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
+                if bullet_hits:
+                    damage = self.player.take_damage(len(bullet_hits))
+                    self.lives -= damage
+                    self.sound.play("hit")
+                    if self.lives <= 0 and TUTORIAL_NO_DEATH_PENALTY:
+                        self.lives = MAX_LIVES
+
+            # Check if 30 seconds have passed
+            if elapsed >= TUTORIAL_SURVIVE_TIME:
+                # Clean up remaining survival drones
+                for sprite in list(self.tutorial_sprites):
+                    if isinstance(sprite, Enemy):
+                        sprite.kill()
+                self._survive_waves_spawned = 0
+                self._advance_tutorial_objective(
+                    "OBJECTIF: Atteignez le portail de sortie!", HOLO_GREEN)
+        
+        elif current_obj == TUTORIAL_OBJ_EXIT:
+            if not self.tutorial_exit_portal:
+                self.tutorial_exit_portal = ExitPortal(
+                    self.screen_width - 150, self.screen_height // 2)
+                self.tutorial_sprites.add(self.tutorial_exit_portal)
+            if self.tutorial_exit_portal and self.player:
+                if pygame.sprite.collide_rect(self.player, self.tutorial_exit_portal):
+                    self.complete_tutorial()
+    
+    def handle_tutorial_events(self, event):
+        """Handle tutorial input events"""
+        if event.type == pygame.KEYDOWN:
+            if self.keybinding.is_action_key(event.key, "shoot"):
+                self.shoot_player_bullet()
+            if self.keybinding.is_action_key(event.key, "shield") and self.active_bonuses["shield"]["active"]:
+                self.activate_shield()
+            if self.keybinding.is_action_key(event.key, "mega_shot") and self.active_bonuses["mega_shot"]["active"]:
+                self.mega_shot()
+            if self.keybinding.is_action_key(event.key, "menu_back"):
+                self.state = STATE_LEVEL_SELECT
+                self.level_selector.open()
+        
+        if event.type == pygame.MOUSEMOTION and self.touch_held:
+            self.touch_move_pos = self.rm.screen_to_ref(*event.pos)
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            # Skip button
+            if self.tutorial_skip_button.is_clicked(pos):
+                self.complete_tutorial()
+                return
+            
+            # On-screen touch buttons
+            if self.touch_fire_rect and self.touch_fire_rect.collidepoint(pos):
+                self.touch_fire_held = True
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = pygame.time.get_ticks()
+                return
+            if self.touch_shield_rect and self.touch_shield_rect.collidepoint(pos):
+                if self.active_bonuses["shield"]["active"]:
+                    self.activate_shield()
+                return
+            if self.touch_mega_rect and self.touch_mega_rect.collidepoint(pos):
+                if self.active_bonuses["mega_shot"]["active"]:
+                    self.mega_shot()
+                return
+            
+            # Start dragging to move
+            self.touch_move_pos = pos
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.prev_state = self.state
+                self.profile_screen.open()
+    
+    def complete_tutorial(self):
+        """Mark Boot Camp as completed and unlock the rest of the game"""
+        self.tutorial_completed = True
+        self.level_selector.set_boot_camp_completed(True, self.auth)
+        
+        # Try API unlock if the client exposes such a method
+        if self.api.is_authenticated() and hasattr(self.api, "unlock_world"):
+            try:
+                self.api.unlock_world("BootCamp")
+            except Exception as e:
+                print(f"[DEBUG] API unlock_world call failed: {e}")
+        
+        self.state = STATE_TUTORIAL_COMPLETE
+        self.show_message("Boot Camp termine!", HOLO_GREEN, 300)
+    
+    def handle_tutorial_complete_events(self, event):
+        """Handle tutorial completion screen events"""
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self.rm.screen_to_ref(*event.pos)
+            
+            if self.btn_tutorial_continue.is_clicked(pos):
+                self.level_selector.open()
+                self.state = STATE_LEVEL_SELECT
+            elif self.btn_tutorial_replay.is_clicked(pos):
+                self.start_tutorial()
+            
+            # Profile icon
+            if self.profile_icon and self.profile_icon.is_clicked(pos):
+                self.profile_screen.open()
+    
+    def _draw_shield_effect(self):
+        """Draw a shield bubble around the player when shielded."""
+        if self.player and self.player.is_shielded():
+            center = self.player.rect.center
+            radius = max(self.player.rect.width, self.player.rect.height) // 2 + 8
+            pulse = (pygame.time.get_ticks() % 500) / 500.0
+            alpha = int(80 + 60 * pulse)
+            shield_surf = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(shield_surf, (*LIGHT_BLUE, alpha), (radius + 2, radius + 2), radius, 3)
+            self.screen.blit(shield_surf, (center[0] - radius - 2, center[1] - radius - 2))
+
+    def draw_tutorial(self):
+        """Draw the tutorial gameplay screen"""
+        self.screen.blit(self.game_bg, (0, 0))
+        
+        if self.player:
+            self._draw_shield_effect()
+            self.screen.blit(self.player.image, self.player.rect)
+        
+        self.tutorial_sprites.draw(self.screen)
+        self.player_bullets.draw(self.screen)
+        self.explosions.draw(self.screen)
+        
+        # Objective text at top (with proper transparent background)
+        obj_text = self._get_tutorial_objective_text()
+        obj_surf = self.font_small.render(obj_text, True, HOLO_BLUE)
+        obj_rect = obj_surf.get_rect(center=(self.screen_width // 2, 90))
+        bg_rect = obj_rect.inflate(24, 14)
+        bg_surf = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surf.fill((0, 10, 20, 180))
+        pygame.draw.rect(bg_surf, HOLO_CYAN, bg_surf.get_rect(), 2, border_radius=5)
+        self.screen.blit(bg_surf, bg_rect.topleft)
+        self.screen.blit(obj_surf, obj_rect)
+        
+        # Skip button
+        self.tutorial_skip_button.draw(self.screen)
+        
+        self.draw_hud()
+        self.draw_touch_controls()
+    
+    def draw_tutorial_complete(self):
+        """Draw the tutorial completion screen"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        title = self.font_large.render("BOOT CAMP TERMINE!", True, GREEN)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 200))
+        self.screen.blit(title, title_rect)
+        
+        score_text = self.font_medium.render(f"Score: {self.current_score}", True, WHITE)
+        score_rect = score_text.get_rect(center=(self.screen_width // 2, 280))
+        self.screen.blit(score_text, score_rect)
+        
+        self.btn_tutorial_continue.draw(self.screen)
+        self.btn_tutorial_replay.draw(self.screen)
+    
+    def is_boss_level(self):
+        """Return True if the current level is the final level of the world."""
+        world_data = WORLDS.get(self.current_world)
+        if not world_data:
+            return False
+        return self.current_level >= world_data.get("levels", 1) and not world_data.get("is_tutorial", False)
+
+    def spawn_enemies(self):
+        """Spawn enemies or boss for current level"""
+        # Final level of a world -> boss fight
+        if self.is_boss_level() and self.boss_images.get(self.current_world):
+            boss_img = random.choice(self.boss_images[self.current_world])
+            self.boss = Boss(
+                self.screen_width // 2,
+                120,
+                boss_img,
+                self.screen_width,
+                self.current_level,
+                self.current_world
+            )
+            self.show_message("BOSS APPROCHE!", RED)
+            return
+
+        # Normal level -> enemy grid
+        base_rows = 3
+        base_cols = 5
+        rows = min(base_rows + self.current_level // 2, 6)
+        cols = min(base_cols + self.current_level // 2, 9)
+
+        enemy_width = 60
+        enemy_height = 60
+        spacing_x = 20
+        spacing_y = 20
+
+        total_width = cols * (enemy_width + spacing_x)
+        start_x = (self.screen_width - total_width) // 2
+        start_y = 80
+
+        for row in range(rows):
+            for col in range(cols):
+                x = start_x + col * (enemy_width + spacing_x) + enemy_width // 2
+                y = start_y + row * (enemy_height + spacing_y) + enemy_height // 2
+
+                enemy_img = random.choice(self.enemy_images[self.current_world])
+                enemy = Enemy(x, y, enemy_img, self.screen_width, self.current_level)
+                self.enemies.add(enemy)
+    
+    def shoot_player_bullet(self):
+        """Player shoots a bullet"""
+        if self.player and len(self.player_bullets) < MAX_PLAYER_BULLETS:
+            bullet = Bullet(self.player.rect.centerx,
+                           self.player.rect.top,
+                           self.player_bullet_img,
+                           True,
+                           self.screen_height)
+            self.player_bullets.add(bullet)
+            self.sound.play("shoot")
+    
+    def activate_shield(self):
+        """Active le bouclier du joueur"""
+        if self.active_bonuses["shield"]["active"] and self.player:
+            self.active_bonuses["shield"]["active"] = False
+            self.player.activate_shield()
+            self.show_message("Bouclier activé!", BLUE)
+            self.sound.play("shield")
+    
+    def mega_shot(self):
+        """Tir spécial plus puissant"""
+        if self.active_bonuses["mega_shot"]["active"]:
+            # Tir triple
+            for i in range(-1, 2):
+                bullet = Bullet(self.player.rect.centerx + i*20,
+                               self.player.rect.top,
+                               self.player_bullet_img,
+                               True,
+                               self.screen_height)
+                self.player_bullets.add(bullet)
+            self.active_bonuses["mega_shot"]["active"] = False
+            self.show_message("Mega tir activé!", YELLOW)
+            self.sound.play("mega")
+    
+    def spawn_bonus(self, x, y):
+        """Fait tomber un bonus aléatoire"""
+        bonus_type = random.choice(["life", "shield", "mega_shot"])
+        bonus = Bonus(x, y, bonus_type)
+        self.bonuses.add(bonus)
+    
+    def activate_bonus(self, bonus_type):
+        """Active un bonus"""
+        if bonus_type == "life":
+            self.lives = min(self.lives + 1, 10)
+            self.show_message("+1 Vie!", GREEN)
+        else:
+            self.active_bonuses[bonus_type]["active"] = True
+            self.active_bonuses[bonus_type]["timer"] = pygame.time.get_ticks()
+            self.show_message(f"{bonus_type.title()} activé!", BLUE if bonus_type == "shield" else YELLOW)
+        self.sound.play("bonus")
+    
+    def use_special_attack(self):
+        """Consume the special attack charge and trigger a world special.
+        Returns True if the special was used, False if not ready."""
+        if self.special_ready and self.player:
+            self.special_ready = False
+            self.special_charge = 0.0
+            self.trigger_world_special()
+            self.last_special_attack_time = pygame.time.get_ticks()
+            self.show_message("ATTAQUE SPÉCIALE!", PURPLE)
+            return True
+        return False
+    
+    def trigger_world_special(self):
+        """Déclenche une attaque spéciale selon le monde"""
+        world = self.current_world
+        
+        if world == "Space":
+            self.spawn_space_lasers()
+        elif world == "Desert":
+            self.blind_player()
+        elif world == "Forest": 
+            self.root_player()
+        elif world == "Marine":
+            self.spawn_ice_ball()
+        elif world == "Apocalyptic":
+            self.spawn_energy_ball()
+    
+    def spawn_space_lasers(self):
+        """1-3 rayons laser tombent au hasard"""
+        num_lasers = random.randint(1, min(3, self.current_level))
+        for _ in range(num_lasers):
+            attack = SpecialAttack("laser", "Space", self.current_level, 
+                                 self.screen_width, self.screen_height)
+            self.special_attacks.add(attack)
+        self.show_message("Rayons laser!", PURPLE)
+    
+    def spawn_ice_ball(self):
+        """Balle de glace qui gèle les tirs"""
+        attack = SpecialAttack("ice", "Marine", self.current_level,
+                              self.screen_width, self.screen_height)
+        self.special_attacks.add(attack)
+        self.show_message("Balle de glace!", LIGHT_BLUE)
+    
+    def spawn_energy_ball(self):
+        """Boule d'énergie qui rebondit"""
+        attack = SpecialAttack("energy", "Apocalyptic", self.current_level,
+                              self.screen_width, self.screen_height)
+        self.special_attacks.add(attack)
+        self.show_message("Boule d'énergie!", YELLOW)
+    
+    def blind_player(self):
+        """Nuage de sable - joueur ne voit rien"""
+        attack = SpecialAttack("sand", "Desert", self.current_level,
+                              self.screen_width, self.screen_height)
+        self.special_attacks.add(attack)
+        self.player_debuffs["blinded"] = True
+        self.player_debuffs["timer"] = pygame.time.get_ticks()
+        self.player_debuffs["duration"] = min(1000 + (self.current_level * 200), 3000)
+        self.show_message("Nuage de sable!", SAND_COLOR)
+    
+    def root_player(self):
+        """Racines - joueur ne peut plus bouger"""
+        attack = SpecialAttack("roots", "Forest", self.current_level,
+                              self.screen_width, self.screen_height)
+        self.special_attacks.add(attack)
+        self.player_debuffs["rooted"] = True
+        self.player_debuffs["timer"] = pygame.time.get_ticks()
+        self.player_debuffs["duration"] = min(1500 + (self.current_level * 150), 3500)
+        self.show_message("Racines!", BROWN)
+    
+    def update(self):
+        """Update game logic"""
+        # Update message timer
+        if self.message_timer > 0:
+            self.message_timer -= 1
+            if self.message_timer == 0:
+                self.message = ""
+        
+        # Update profile screen
+        if self.profile_screen.active:
+            self.profile_screen.update()
+            new_char = self.profile_screen.get_selected_character()
+            if new_char != self.selected_character:
+                self.selected_character = new_char
+                self.update_profile_icon()
+            return
+        
+        # Update level selector (pass reference-space mouse pos for hover)
+        if self.level_selector.active:
+            self.level_selector.update(self.rm.screen_to_ref(*pygame.mouse.get_pos()))
+            return
+        
+        # Transform current mouse position to reference (canvas) space so
+        # all hover/update calls receive coordinates that match the UI rects.
+        mouse_pos = self.rm.screen_to_ref(*pygame.mouse.get_pos())
+        
+        if self.state == STATE_MAIN_MENU:
+            self.btn_start.update(mouse_pos)
+            self.btn_continue.update(mouse_pos)
+            self.btn_controls.update(mouse_pos)
+            self.btn_help.update(mouse_pos)
+            self.btn_game.update(mouse_pos)
+            self.btn_quit.update(mouse_pos)
+            self.popup_help.update(mouse_pos)
+            self.popup_game.update(mouse_pos)
+        
+        elif self.state == STATE_LOGIN:
+            self.login_username.update()
+            self.login_password.update()
+            self.btn_login.update(mouse_pos)
+            self.btn_to_register.update(mouse_pos)
+            self.btn_guest.update(mouse_pos)
+        
+        elif self.state == STATE_REGISTER:
+            self.register_username.update()
+            self.register_email.update()
+            self.register_password.update()
+            self.register_confirm.update()
+            self.btn_register.update(mouse_pos)
+            self.btn_back_login.update(mouse_pos)
+        
+        elif self.state == STATE_GAMEPLAY:
+            self.update_gameplay()
+        
+        elif self.state == STATE_TUTORIAL:
+            self.update_tutorial()
+            self.tutorial_skip_button.update(mouse_pos)
+        
+        elif self.state == STATE_TUTORIAL_COMPLETE:
+            self.btn_tutorial_continue.update(mouse_pos)
+            self.btn_tutorial_replay.update(mouse_pos)
+        
+        elif self.state == STATE_GAME_OVER:
+            self.btn_restart.update(mouse_pos)
+            self.btn_finish.update(mouse_pos)
+        
+        elif self.state == STATE_LEVEL_WIN:
+            self.btn_next_level.update(mouse_pos)
+            self.btn_level_select.update(mouse_pos)
+        
+        # Update profile icon
+        if self.profile_icon:
+            self.profile_icon.update(mouse_pos)
+    
+    def update_gameplay(self):
+        """Update gameplay logic"""
+        if not self.player:
+            return
+        
+        # Update player (sauf si rooté)
+        keys = pygame.key.get_pressed()
+        if not self.player_debuffs["rooted"]:
+            # Keyboard movement
+            self.player.update(keys)
+            self.player.update_shield()
+            # Touch/mouse drag movement — move player toward held position
+            if self.touch_held and self.touch_move_pos and not self.touch_fire_held:
+                self.player.move_toward(*self.touch_move_pos)
+        
+        # Touch auto-fire: if fire button is held, keep shooting
+        if self.touch_fire_held:
+            now = pygame.time.get_ticks()
+            if now - self.touch_auto_fire_timer >= self.touch_auto_fire_delay:
+                self.shoot_player_bullet()
+                self.touch_auto_fire_timer = now
+        
+        # Update bullets
+        self.player_bullets.update()
+        self.enemy_bullets.update()
+        
+        # Update enemies
+        for enemy in self.enemies:
+            enemy.update()
+
+            # Enemy shooting
+            current_time = pygame.time.get_ticks()
+            if enemy.can_shoot() and random.random() < enemy.shoot_chance:
+                bullet = Bullet(enemy.rect.centerx,
+                            enemy.rect.bottom,
+                            self.enemy_bullet_img,
+                            False,
+                            self.screen_height)
+                self.enemy_bullets.add(bullet)
+                enemy.last_shot = current_time
+                if random.random() < 0.3:
+                    self.sound.play("enemy_shoot")
+
+        # Update boss
+        if self.boss:
+            self.boss.update()
+            current_time = pygame.time.get_ticks()
+            if self.boss.can_shoot():
+                # Boss fires a spread of 3 bullets
+                for offset in (-20, 0, 20):
+                    bullet = Bullet(self.boss.rect.centerx + offset,
+                                self.boss.rect.bottom,
+                                self.enemy_bullet_img,
+                                False,
+                                self.screen_height)
+                    self.enemy_bullets.add(bullet)
+                self.boss.last_shot = current_time
+                self.sound.play("enemy_shoot")
+
+        # Update explosions
+        self.explosions.update()
+        
+        # Update bonuses
+        self.bonuses.update()
+        
+        # Update special attacks
+        self.special_attacks.update()
+        
+        # Gestion des debuffs
+        self.update_debuffs()
+        
+        # Chance de spawner un bonus
+        if random.random() < 0.001:  # 0.1% de chance par frame
+            x = random.randint(50, self.screen_width - 50)
+            self.spawn_bonus(x, 0)
+        
+        # ── Special attack charge ─────────────────────────────────────────
+        if not self.special_ready:
+            self.special_charge = min(1.0, self.special_charge + self.special_charge_rate)
+            if self.special_charge >= 1.0:
+                self.special_ready = True
+                self.sound.play("bonus")  # Audible cue when ready
+        
+        # Random world special attack (auto-trigger when cooldown elapsed)
+        current_time = pygame.time.get_ticks()
+        if (current_time - self.last_special_attack_time > self.special_attack_cooldown and
+            random.random() < 0.01):  # 1% de chance quand le cooldown est écoulé
+            self.trigger_world_special()
+            self.last_special_attack_time = current_time
+        
+        # Collision detection
+        self.check_collisions()
+        
+        # Check win condition (boss must also be dead)
+        if len(self.enemies) == 0 and self.boss is None:
+            self.state = STATE_LEVEL_WIN
+            self.sound.play("level_win")
+            if self.auth.current_user:
+                self.auth.update_user_data(
+                    high_score=max(self.current_score, 
+                                  self.auth.get_user_data("high_score") or 0)
+                )
+    
+    def update_debuffs(self):
+        """Gère la durée des debuffs"""
+        current_time = pygame.time.get_ticks()
+        
+        if self.player_debuffs["blinded"]:
+            if current_time - self.player_debuffs["timer"] > self.player_debuffs["duration"]:
+                self.player_debuffs["blinded"] = False
+        
+        if self.player_debuffs["rooted"]:
+            if current_time - self.player_debuffs["timer"] > self.player_debuffs["duration"]:
+                self.player_debuffs["rooted"] = False
+    
+    def check_collisions(self):
+        """Check all collisions"""
+        # Player bullets hit enemies
+        for bullet in self.player_bullets:
+            # Normal enemies
+            hits = pygame.sprite.spritecollide(bullet, self.enemies, True)
+            if hits:
+                bullet.kill()
+                self.enemies_killed += len(hits)
+                self.current_score += 10 * self.current_level
+                for enemy in hits:
+                    explosion = Explosion(enemy.rect.centerx, enemy.rect.centery,
+                                        explosion_img=self.enemy_explosion_img)
+                    self.explosions.add(explosion)
+                    self.sound.play("explosion")
+                    # Chance de faire tomber un bonus
+                    if random.random() < 0.2:  # 20% de chance
+                        self.spawn_bonus(enemy.rect.centerx, enemy.rect.centery)
+                continue
+
+            # Boss
+            if self.boss and pygame.sprite.collide_rect(bullet, self.boss):
+                bullet.kill()
+                self.current_score += 5
+                boss_died = self.boss.take_damage(1)
+                self.sound.play("hit")
+                if boss_died:
+                    explosion = Explosion(self.boss.rect.centerx, self.boss.rect.centery,
+                                          explosion_img=self.enemy_explosion_img)
+                    self.explosions.add(explosion)
+                    self.sound.play("explosion")
+                    self.current_score += 500 * self.current_level
+                    self.enemies_killed += 1
+                    self.boss = None
+                    self.state = STATE_LEVEL_WIN
+                    self.sound.play("level_win")
+                continue
+
+        # Enemy bullets hit player (respect Phase Dash and Shield)
+        if self.player and not self.player.is_invincible():
+            hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
+            if hits:
+                damage = self.player.take_damage(len(hits))
+                self.lives -= damage
+                self.sound.play("hit" if damage > 0 else "hit")
+                if self.lives <= 0:
+                    explosion = Explosion(self.player.rect.centerx,
+                                        self.player.rect.centery, RED,
+                                        explosion_img=self.player_explosion_img)
+                    self.explosions.add(explosion)
+                    self.sound.play("player_explosion")
+                    self.trigger_game_over()
+
+        # Enemies reach player (respect Phase Dash and Shield)
+        if self.player and not self.player.is_invincible():
+            hits = pygame.sprite.spritecollide(self.player, self.enemies, True)
+            if hits:
+                damage = self.player.take_damage(len(hits) * 2)
+                self.lives -= damage
+                self.sound.play("hit" if damage > 0 else "hit")
+                if self.lives <= 0:
+                    self.sound.play("player_explosion")
+                    self.trigger_game_over()
+
+        # Boss reaches player (instant death)
+        if self.player and self.boss and not self.player.is_invincible():
+            if pygame.sprite.collide_rect(self.player, self.boss):
+                self.lives = 0
+                self.sound.play("player_explosion")
+                self.trigger_game_over()
+
+        # Player collects bonuses
+        if self.player:
+            collected_bonuses = pygame.sprite.spritecollide(self.player, self.bonuses, True)
+            for bonus in collected_bonuses:
+                self.activate_bonus(bonus.bonus_type)
+
+        # Special attacks hit player (respect Phase Dash and Shield)
+        if self.player and not self.player.is_invincible():
+            for attack in self.special_attacks:
+                if pygame.sprite.collide_rect(self.player, attack):
+                    damage = self.player.take_damage(attack.damage)
+                    self.lives -= damage
+                    self.sound.play("hit" if damage > 0 else "hit")
+                    attack.kill()
+                    if self.lives <= 0:
+                        self.sound.play("player_explosion")
+                        self.trigger_game_over()
+    
+    def draw(self):
+        """Draw everything"""
+        # Draw based on state
+        if self.level_selector.active:
+            self.level_selector.draw(self.menu_bg)
+        elif self.state == STATE_MAIN_MENU:
+            self.draw_main_menu()
+        elif self.state in (STATE_LOGIN, STATE_REGISTER):
+            # Auth is handled by the web dashboard – fall back to main menu
+            self.state = STATE_MAIN_MENU
+            self.draw_main_menu()
+        elif self.state == STATE_GAMEPLAY:
+            self.draw_gameplay()
+        elif self.state == STATE_TUTORIAL:
+            self.draw_tutorial()
+        elif self.state == STATE_TUTORIAL_COMPLETE:
+            self.draw_tutorial_complete()
+        elif self.state == STATE_GAME_OVER:
+            self.draw_game_over()
+        elif self.state == STATE_LEVEL_WIN:
+            self.draw_level_win()
+        
+        # Draw profile icon
+        if (not self.level_selector.active and 
+            self.state not in [STATE_LOGIN, STATE_REGISTER]):
+            if self.profile_icon:
+                self.profile_icon.draw(self.screen)
+        
+        # Draw profile screen
+        if self.profile_screen.active:
+            self.profile_screen.draw()
+
+        # Draw keybinding settings screen
+        if self.keybinding_screen.active:
+            self.keybinding_screen.draw(self.screen)
+
+        # Draw message
+        if self.message:
+            msg_surf = self.font_small.render(self.message, True, self.message_color)
+            msg_rect = msg_surf.get_rect(center=(self.screen_width // 2, 50))
+            bg_rect = msg_rect.inflate(20, 10)
+            pygame.draw.rect(self.screen, (0, 0, 0, 200), bg_rect, border_radius=5)
+            self.screen.blit(msg_surf, msg_rect)
+        
+        # Scale the reference canvas to the real window (letterboxing) and flip
+        self.rm.present(self._display)
+        pygame.display.flip()
+    
+    def draw_main_menu(self):
+        """Draw main menu"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        title = self.font_large.render("S I 3 L N", True, WHITE)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 150))
+        
+        shadow = self.font_large.render("S I 3 L N", True, BLACK)
+        shadow_rect = title_rect.copy()
+        shadow_rect.x += 3
+        shadow_rect.y += 3
+        self.screen.blit(shadow, shadow_rect)
+        self.screen.blit(title, title_rect)
+        
+        subtitle = self.font_small.render("Space Invaders III - Last Night", True, CYAN)
+        subtitle_rect = subtitle.get_rect(center=(self.screen_width // 2, 220))
+        self.screen.blit(subtitle, subtitle_rect)
+        
+        self.btn_start.draw(self.screen)
+        self.btn_continue.draw(self.screen)
+        self.btn_controls.draw(self.screen)
+        self.btn_help.draw(self.screen)
+        self.btn_game.draw(self.screen)
+        self.btn_quit.draw(self.screen)
+        
+        self.popup_help.draw(self.screen)
+        self.popup_game.draw(self.screen)
+    
+    def draw_login(self):
+        """Draw login screen"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        title = self.font_large.render("CONNEXION", True, WHITE)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 150))
+        self.screen.blit(title, title_rect)
+        
+        self.login_username.draw(self.screen)
+        self.login_password.draw(self.screen)
+        
+        self.btn_login.draw(self.screen)
+        self.btn_to_register.draw(self.screen)
+        self.btn_guest.draw(self.screen)
+    
+    def draw_register(self):
+        """Draw register screen"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        title = self.font_large.render("INSCRIPTION", True, WHITE)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 120))
+        self.screen.blit(title, title_rect)
+        
+        self.register_username.draw(self.screen)
+        self.register_email.draw(self.screen)
+        self.register_password.draw(self.screen)
+        self.register_confirm.draw(self.screen)
+        
+        self.btn_register.draw(self.screen)
+        self.btn_back_login.draw(self.screen)
+    
+    def draw_gameplay(self):
+        self.screen.blit(self.game_bg, (0, 0))
+        
+        if self.player:
+            # Draw ghost trail for Phase Dash
+            if self.player.is_phantom and self.player.ghost_trail:
+                for ghost in self.player.ghost_trail:
+                    ghost_surf = self.player.original_image.copy()
+                    ghost_surf.set_alpha(ghost["alpha"])
+                    self.screen.blit(ghost_surf, ghost["rect"])
+            self._draw_shield_effect()
+            self.screen.blit(self.player.image, self.player.rect)
+        
+        self.enemies.draw(self.screen)
+        if self.boss:
+            self.screen.blit(self.boss.image, self.boss.rect)
+        self.player_bullets.draw(self.screen)
+        self.enemy_bullets.draw(self.screen)
+        self.explosions.draw(self.screen)
+        self.bonuses.draw(self.screen)
+        self.special_attacks.draw(self.screen)
+        
+        if self.player_debuffs["blinded"]:
+            overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+            overlay.fill((210, 180, 140, 150))
+            self.screen.blit(overlay, (0, 0))
+        
+        self.draw_hud()
+          
+        # Draw on-screen touch buttons
+        self.draw_touch_controls()
+    
+    def draw_game_over(self):
+        """Draw game over screen"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+        
+        title = self.font_large.render("GAME OVER", True, RED)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 120))
+        self.screen.blit(title, title_rect)
+        
+        score_text = self.font_medium.render(f"Score Final: {self.current_score}", True, WHITE)
+        score_rect = score_text.get_rect(center=(self.screen_width // 2, 200))
+        self.screen.blit(score_text, score_rect)
+        
+        level_text = self.font_small.render(f"Niveau atteint: {self.current_level}", True, CYAN)
+        level_rect = level_text.get_rect(center=(self.screen_width // 2, 250))
+        self.screen.blit(level_text, level_rect)
+        
+        self.draw_high_scores(300)
+        
+        self.btn_restart.draw(self.screen)
+        self.btn_finish.draw(self.screen)
+    
+    def draw_high_scores(self, start_y):
+        """Draw high scores table"""
+        title = self.font_medium.render("MEILLEURS SCORES", True, YELLOW)
+        title_rect = title.get_rect(center=(self.screen_width // 2, start_y))
+        self.screen.blit(title, title_rect)
+        
+        scores = self.score_manager.get_top_scores(10)
+        # Supplement with API leaderboard if local scores are empty
+        if not scores:
+            try:
+                api_lb = self.api.get_leaderboard_global(limit=10)
+                if isinstance(api_lb, dict) and "entries" in api_lb:
+                    api_lb = api_lb.get("entries", [])
+                scores = [
+                    {"username": e.get("player_name") or e.get("player_username", "?"),
+                     "score":    e.get("score", 0),
+                     "level":    e.get("level_id") or e.get("level_reached", 1)}
+                    for e in api_lb
+                ]
+            except Exception:
+                pass
+        
+        y = start_y + 50
+        for i, entry in enumerate(scores):
+            rank_color = YELLOW if i < 3 else WHITE
+            text = f"{i+1}. {entry['username'][:15]:15s} - {entry['score']:6d} pts (Niv {entry['level']})"
+            score_surf = self.font_tiny.render(text, True, rank_color)
+            score_rect = score_surf.get_rect(center=(self.screen_width // 2, y))
+            self.screen.blit(score_surf, score_rect)
+            y += 25
+            
+            if y > self.screen_height - 150:
+                break
+    
+    def draw_level_win(self):
+        """Draw level win screen"""
+        self.screen.blit(self.menu_bg, (0, 0))
+        
+        overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
+        
+        title = self.font_large.render(f"NIVEAU {self.current_level} TERMINÉ!", True, GREEN)
+        title_rect = title.get_rect(center=(self.screen_width // 2, 200))
+        self.screen.blit(title, title_rect)
+        
+        score_text = self.font_medium.render(f"Score: {self.current_score}", True, WHITE)
+        score_rect = score_text.get_rect(center=(self.screen_width // 2, 280))
+        self.screen.blit(score_text, score_rect)
+        
+        self.btn_next_level.draw(self.screen)
+        self.btn_level_select.draw(self.screen)
+    
+    def _build_touch_zones(self):
+        """Build touch button zones for mobile/touch controls"""
+        if not self.rm:
+            return
+        # Fire button (bottom-right)
+        btn_size = int(80 * self.rm.s)
+        margin = int(20 * self.rm.s)
+        self.touch_fire_rect = pygame.Rect(
+            self.screen_width - btn_size - margin,
+            self.screen_height - btn_size - margin,
+            btn_size, btn_size
+        )
+        # Shield button (above fire)
+        self.touch_shield_rect = pygame.Rect(
+            self.screen_width - btn_size - margin,
+            self.screen_height - btn_size * 2 - margin * 2,
+            btn_size, btn_size
+        )
+        # Mega shot button (above shield)
+        self.touch_mega_rect = pygame.Rect(
+            self.screen_width - btn_size - margin,
+            self.screen_height - btn_size * 3 - margin * 3,
+            btn_size, btn_size
+        )
+
+    def draw_touch_controls(self):
+        """Draw on-screen touch buttons"""
+        if not self.touch_fire_rect:
+            return
+        # Fire button
+        pygame.draw.rect(self.screen, RED, self.touch_fire_rect, border_radius=10)
+        fire_text = self.font_tiny.render("FIRE", True, WHITE)
+        fire_rect = fire_text.get_rect(center=self.touch_fire_rect.center)
+        self.screen.blit(fire_text, fire_rect)
+        # Shield button
+        if self.active_bonuses["shield"]["active"]:
+            pygame.draw.rect(self.screen, BLUE, self.touch_shield_rect, border_radius=10)
+        else:
+            pygame.draw.rect(self.screen, (*BLUE, 128), self.touch_shield_rect, border_radius=10)
+        shield_text = self.font_tiny.render("SHIELD", True, WHITE)
+        shield_rect = shield_text.get_rect(center=self.touch_shield_rect.center)
+        self.screen.blit(shield_text, shield_rect)
+        # Mega shot button
+        if self.active_bonuses["mega_shot"]["active"]:
+            pygame.draw.rect(self.screen, YELLOW, self.touch_mega_rect, border_radius=10)
+        else:
+            pygame.draw.rect(self.screen, (*YELLOW, 128), self.touch_mega_rect, border_radius=10)
+        mega_text = self.font_tiny.render("MEGA", True, WHITE)
+        mega_rect = mega_text.get_rect(center=self.touch_mega_rect.center)
+        self.screen.blit(mega_text, mega_rect)
+
+    def draw_hud(self):
+        """Draw heads-up display — three status bars at top-right with enhanced visuals."""
+        # ── Semi-transparent HUD background strip ──────────────────────────
+        hud_panel = pygame.Surface((self.screen_width, 75), pygame.SRCALPHA)
+        hud_panel.fill((0, 0, 0, 160))
+        self.screen.blit(hud_panel, (0, 0))
+        # Bottom border line
+        pygame.draw.line(self.screen, (50, 50, 70), (0, 75), (self.screen_width, 75), 2)
+
+        # ── Left side: Score & Level ───────────────────────────────────────
+        score_text = self.font_small.render(f"Score: {self.current_score:,}", True, WHITE)
+        self.screen.blit(score_text, (20, 10))
+
+        level_text = self.font_small.render(f"Niveau: {self.current_level}", True, CYAN)
+        level_rect = level_text.get_rect(center=(self.screen_width // 2, 28))
+        self.screen.blit(level_text, level_rect)
+
+        # ── Bar configuration ──────────────────────────────────────────────
+        bar_w, bar_h = 160, 16
+        gap = 8
+        bars_right_edge = self.screen_width - 25
+        bar_x = bars_right_edge - bar_w
+        icon_size = 18
+
+        # ── 1) Health / Lives bar (top) ────────────────────────────────────
+        health_y = 10
+        # Heart icon
+        heart_color = RED if self.lives <= 2 else (255, 80, 80)
+        self._draw_heart_icon(bar_x - 26, health_y + 1, icon_size, heart_color)
+        # Background with rounded corners
+        self._draw_rounded_rect(self.screen, (bar_x, health_y, bar_w, bar_h), DARK_GRAY, 4)
+        # Fill with gradient effect
+        max_lives_for_bar = 10
+        health_ratio = min(1.0, self.lives / max_lives_for_bar)
+        if health_ratio > 0.6:
+            health_color = (50, 220, 50)   # Bright green
+            health_color_end = (30, 180, 30)
+        elif health_ratio > 0.3:
+            health_color = (255, 200, 0)   # Orange-yellow
+            health_color_end = (220, 150, 0)
+        else:
+            health_color = (255, 60, 60)    # Red
+            health_color_end = (200, 30, 30)
+        fill_w = int(bar_w * health_ratio)
+        if fill_w > 0:
+            self._draw_gradient_bar(bar_x, health_y, fill_w, bar_h, health_color, health_color_end, 4)
+        # Border
+        border_color = (255, 100, 100) if self.lives <= 2 else WHITE
+        pygame.draw.rect(self.screen, border_color, (bar_x, health_y, bar_w, bar_h), 1, border_radius=4)
+        # Lives number centered on bar
+        lives_text = self.font_tiny.render(f"{self.lives}/{MAX_LIVES}", True, WHITE)
+        text_x = bar_x + (bar_w - lives_text.get_width()) // 2
+        self.screen.blit(lives_text, (text_x, health_y + 1))
+
+        # ── 2) Shield bar (middle) ─────────────────────────────────────────
+        shield_y = health_y + bar_h + gap
+        # Shield icon
+        shield_active = self.player and self.player.is_shielded()
+        shield_icon_color = (100, 200, 255) if shield_active else (80, 80, 100)
+        self._draw_shield_icon(bar_x - 26, shield_y + 1, icon_size, shield_icon_color)
+        # Background
+        self._draw_rounded_rect(self.screen, (bar_x, shield_y, bar_w, bar_h), DARK_GRAY, 4)
+        # Fill
+        if self.player:
+            shield_ratio = self.player.get_shield_ratio()
+        else:
+            shield_ratio = 0.0
+        fill_w = int(bar_w * shield_ratio)
+        if fill_w > 0:
+            if shield_active:
+                # Animated cyan-blue gradient when active
+                pulse = (pygame.time.get_ticks() % 1000) / 1000.0
+                shield_color = (80 + int(40 * pulse), 180, 255)
+                shield_color_end = (40, 120, 220)
+            else:
+                shield_color = (60, 60, 90)
+                shield_color_end = (40, 40, 60)
+            self._draw_gradient_bar(bar_x, shield_y, fill_w, bar_h, shield_color, shield_color_end, 4)
+        # Border
+        border_c = (80, 200, 255) if shield_active else (100, 100, 120)
+        pygame.draw.rect(self.screen, border_c, (bar_x, shield_y, bar_w, bar_h), 1, border_radius=4)
+        # Shield value
+        if self.player and shield_ratio > 0:
+            shield_val = self.font_tiny.render(f"{int(shield_ratio * 100)}%", True, (200, 230, 255))
+            self.screen.blit(shield_val, (bar_x + bar_w + 6, shield_y + 1))
+
+        # ── 3) Special attack charge bar (bottom) ──────────────────────────
+        special_y = shield_y + bar_h + gap
+        # Special icon (lightning bolt)
+        special_ready = self.special_ready
+        special_icon_color = (255, 220, 0) if special_ready else (120, 80, 160)
+        self._draw_lightning_icon(bar_x - 26, special_y + 1, icon_size, special_icon_color)
+        # Background
+        self._draw_rounded_rect(self.screen, (bar_x, special_y, bar_w, bar_h), DARK_GRAY, 4)
+        # Fill
+        charge = min(1.0, max(0.0, self.special_charge))
+        fill_w = int(bar_w * charge)
+        if fill_w > 0:
+            if special_ready:
+                # Pulsing gold-yellow gradient
+                pulse = (pygame.time.get_ticks() % 500) / 500.0
+                special_color = (255, 220, 0)
+                special_color_end = (255, 140 + int(60 * pulse), 0)
+            else:
+                # Purple gradient charging
+                special_color = (180, 100, 220)
+                special_color_end = (100, 50, 150)
+            self._draw_gradient_bar(bar_x, special_y, fill_w, bar_h, special_color, special_color_end, 4)
+        # Border
+        border_color = (255, 220, 0) if special_ready else (150, 100, 180)
+        pygame.draw.rect(self.screen, border_color, (bar_x, special_y, bar_w, bar_h), 1, border_radius=4)
+        # Charge percentage or READY text
+        if special_ready:
+            ready_blink = (pygame.time.get_ticks() % 600) < 300
+            if ready_blink:
+                ready_text = self.font_tiny.render("READY!", True, (255, 255, 0))
+                self.screen.blit(ready_text, (bar_x + bar_w + 6, special_y + 1))
+        else:
+            charge_pct = int(charge * 100)
+            charge_text = self.font_tiny.render(f"{charge_pct}%", True, (200, 180, 220))
+            self.screen.blit(charge_text, (bar_x + bar_w + 6, special_y + 1))
+
+        # ── Active bonus indicators ───────────────────────────────────────
+        bonus_x = 20
+        bonus_y = 42
+        
+        if self.active_bonuses["shield"]["active"]:
+            # Shield bonus with animated border
+            bonus_surf = pygame.Surface((100, 28), pygame.SRCALPHA)
+            pygame.draw.rect(bonus_surf, (0, 100, 200, 180), (0, 0, 100, 28), border_radius=6)
+            pygame.draw.rect(bonus_surf, (100, 200, 255), (0, 0, 100, 28), 2, border_radius=6)
+            shield_bonus_text = self.font_tiny.render("🛡️ BOUCLIER", True, WHITE)
+            bonus_surf.blit(shield_bonus_text, (6, 6))
+            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
+            bonus_x += 110
+
+        if self.active_bonuses["mega_shot"]["active"]:
+            # Mega shot with duration bar
+            elapsed = pygame.time.get_ticks() - self.active_bonuses["mega_shot"].get("timer", 0)
+            duration = self.active_bonuses["mega_shot"].get("duration", 5000)
+            mega_ratio = max(0.0, 1.0 - elapsed / duration) if duration > 0 else 0.0
+            
+            bonus_surf = pygame.Surface((110, 28), pygame.SRCALPHA)
+            pygame.draw.rect(bonus_surf, (200, 150, 0, 180), (0, 0, 110, 28), border_radius=6)
+            pygame.draw.rect(bonus_surf, (255, 200, 0), (0, 0, 110, 28), 2, border_radius=6)
+            mega_bonus_text = self.font_tiny.render("⚡ MEGA", True, WHITE)
+            bonus_surf.blit(mega_bonus_text, (6, 2))
+            # Mini duration bar
+            bar_w_mini = 90
+            fill_w_mini = int(bar_w_mini * mega_ratio)
+            pygame.draw.rect(bonus_surf, (60, 60, 60), (6, 18, bar_w_mini, 6), border_radius=3)
+            if fill_w_mini > 0:
+                pygame.draw.rect(bonus_surf, (255, 220, 0), (6, 18, fill_w_mini, 6), border_radius=3)
+            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
+            bonus_x += 120
+        
+        # Phase Dash cooldown indicator (Phantom Striker only)
+        if self.player and self.player.is_phantom:
+            cd_ratio = self.player.get_phase_dash_cooldown_ratio()
+            bonus_surf = pygame.Surface((100, 28), pygame.SRCALPHA)
+            if cd_ratio > 0:
+                pygame.draw.rect(bonus_surf, (0, 80, 100, 180), (0, 0, 100, 28), border_radius=6)
+                pygame.draw.rect(bonus_surf, (0, 200, 255), (0, 0, 100, 28), 2, border_radius=6)
+                cd_text = self.font_tiny.render("DASH...", True, (0, 200, 255))
+                bonus_surf.blit(cd_text, (8, 6))
+                # Cooldown mini bar
+                fill_cd = int(80 * (1 - cd_ratio))
+                pygame.draw.rect(bonus_surf, (60, 60, 60), (8, 20, 80, 4), border_radius=2)
+                if fill_cd > 0:
+                    pygame.draw.rect(bonus_surf, (0, 255, 255), (8, 20, fill_cd, 4), border_radius=2)
+            else:
+                pygame.draw.rect(bonus_surf, (0, 150, 50, 180), (0, 0, 100, 28), border_radius=6)
+                pygame.draw.rect(bonus_surf, (0, 255, 100), (0, 0, 100, 28), 2, border_radius=6)
+                ready_text = self.font_tiny.render("✓ DASH READY", True, (0, 255, 100))
+                bonus_surf.blit(ready_text, (8, 6))
+            self.screen.blit(bonus_surf, (bonus_x, bonus_y))
+
+        # ── Boss health bar ───────────────────────────────────────────────
+        if self.boss:
+            boss_bar_w, boss_bar_h = 400, 20
+            boss_bar_x = (self.screen_width - boss_bar_w) // 2
+            boss_bar_y = 82
+            boss_ratio = self.boss.get_health_ratio()
+
+            # Boss name label
+            boss_name = self.font_tiny.render(f"BOSS: {self.boss.name}", True, (255, 100, 100))
+            self.screen.blit(boss_name, (boss_bar_x, boss_bar_y - 18))
+            
+            # Background
+            self._draw_rounded_rect(self.screen, (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), (40, 20, 20), 5)
+            # Fill
+            fill_w = int(boss_bar_w * boss_ratio)
+            if fill_w > 0:
+                if boss_ratio > 0.5:
+                    boss_color = (220, 60, 60)
+                    boss_color_end = (180, 30, 30)
+                elif boss_ratio > 0.25:
+                    boss_color = (255, 120, 0)
+                    boss_color_end = (220, 80, 0)
+                else:
+                    boss_color = (255, 50, 50)
+                    boss_color_end = (200, 20, 20)
+                self._draw_gradient_bar(boss_bar_x, boss_bar_y, fill_w, boss_bar_h, boss_color, boss_color_end, 5)
+            # Border
+            pygame.draw.rect(self.screen, (255, 100, 100), (boss_bar_x, boss_bar_y, boss_bar_w, boss_bar_h), 2, border_radius=5)
+            # Health percentage
+            boss_pct = int(boss_ratio * 100)
+            pct_text = self.font_tiny.render(f"{boss_pct}%", True, WHITE)
+            self.screen.blit(pct_text, (boss_bar_x + boss_bar_w + 8, boss_bar_y + 2))
+
+    def _draw_rounded_rect(self, surface, rect, color, radius):
+        """Helper to draw a rounded rectangle."""
+        pygame.draw.rect(surface, color, rect, border_radius=radius)
+
+    def _draw_gradient_bar(self, x, y, width, height, color_start, color_end, radius):
+        """Draw a horizontal gradient bar."""
+        for i in range(width):
+            ratio = i / max(width - 1, 1)
+            r = int(color_start[0] + (color_end[0] - color_start[0]) * ratio)
+            g = int(color_start[1] + (color_end[1] - color_start[1]) * ratio)
+            b = int(color_start[2] + (color_end[2] - color_start[2]) * ratio)
+            pygame.draw.line(self.screen, (r, g, b), (x + i, y), (x + i, y + height - 1))
+        # Top and bottom highlight for 3D effect
+        pygame.draw.line(self.screen, (min(255, r + 40), min(255, g + 40), min(255, b + 40)), 
+                        (x, y), (x + width - 1, y))
+        pygame.draw.line(self.screen, (max(0, r - 40), max(0, g - 40), max(0, b - 40)), 
+                        (x, y + height - 1), (x + width - 1, y + height - 1))
+
+    def _draw_heart_icon(self, x, y, size, color):
+        """Draw a simple heart icon."""
+        # Simple filled circle as heart approximation
+        pygame.draw.circle(self.screen, color, (x + size // 2, y + size // 2), size // 2)
+        pygame.draw.circle(self.screen, (min(255, color[0] + 40), min(255, color[1] + 40), min(255, color[2] + 40)), 
+                          (x + size // 2, y + size // 2), size // 2 - 2)
+
+    def _draw_shield_icon(self, x, y, size, color):
+        """Draw a shield icon."""
+        # Shield shape (rounded rect)
+        shield_rect = (x + 2, y + 2, size - 4, size - 4)
+        pygame.draw.rect(self.screen, color, shield_rect, border_radius=size // 4)
+        pygame.draw.rect(self.screen, (min(255, color[0] + 50), min(255, color[1] + 50), min(255, color[2] + 50)), 
+                        shield_rect, 2, border_radius=size // 4)
+
+    def _draw_lightning_icon(self, x, y, size, color):
+        """Draw a lightning bolt icon."""
+        # Lightning bolt shape
+        points = [
+            (x + size // 2, y + 2),
+            (x + size // 4, y + size // 2),
+            (x + size // 2 + 2, y + size // 2),
+            (x + size // 2 - 2, y + size - 2),
+            (x + 3 * size // 4, y + size // 2 - 2),
+            (x + size // 2 - 2, y + size // 2 - 2),
+        ]
+        pygame.draw.polygon(self.screen, color, points)
+        pygame.draw.polygon(self.screen, (min(255, color[0] + 60), min(255, color[1] + 60), min(255, color[2] + 60)), points, 2)
+
+    def toggle_fullscreen(self):
+        """Toggle fullscreen mode.
+
+        Only the real display (_display) changes.  The reference canvas
+        (self.screen) stays at 1280×720 – rm.present() handles the scaling.
+        """
+        self.is_fullscreen = not self.is_fullscreen
+
+        if self.is_fullscreen:
+            self._display = pygame.display.set_mode(
+                (0, 0), pygame.FULLSCREEN | pygame.RESIZABLE
+            )
+        else:
+            self._display = pygame.display.set_mode(
+                (DEFAULT_SCREEN_WIDTH, DEFAULT_SCREEN_HEIGHT),
+                pygame.SCALED | pygame.RESIZABLE
+            )
+
+        self.rm.update(self._display.get_width(), self._display.get_height())
+        self.create_ui()
+        self.update_profile_icon()
+        self._build_touch_zones()
+    
+    def handle_resize(self, width, height):
+        """Handle window resize.
+
+        The reference canvas (self.screen, 1280×720) never changes size.
+        We only update the real display surface and the ResolutionManager
+        so that rm.present() uses the new scale factor and letterbox offsets.
+        UI elements are rebuilt when the orientation (portrait ↔ landscape)
+        changes to keep layouts appropriate for the new aspect ratio.
+        """
+        old_portrait = self.rm.is_portrait
+        self._display = pygame.display.set_mode((width, height), pygame.RESIZABLE)
+        self.rm.update(width, height)
+
+        if old_portrait != self.rm.is_portrait:
+            # Orientation flipped – rebuild layout so portrait/landscape
+            # button arrangements match the new screen shape.
+            self.create_ui()
+            self.update_profile_icon()
+    
+    async def run(self):
+        """Main game loop"""
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.draw()
+            await asyncio.sleep(0)  # yield to browser – rAF controls timing
+        
+        pygame.quit()
+        sys.exit()
+
+
+if __name__ == "__main__":
+    game = Game()
+    asyncio.run(game.run())
