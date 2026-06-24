@@ -2132,7 +2132,7 @@ class Game:
         # Background with rounded corners
         self._draw_rounded_rect(self.screen, (bar_x, health_y, bar_w, bar_h), DARK_GRAY, 4)
         # Fill with gradient effect
-        max_lives_for_bar = 10
+        max_lives_for_bar = MAX_LIVES
         health_ratio = min(1.0, self.lives / max_lives_for_bar)
         if health_ratio > 0.6:
             health_color = (50, 220, 50)   # Bright green
