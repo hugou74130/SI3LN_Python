@@ -68,25 +68,61 @@ V1 (Jeu seul)  →  V2 (Jeu + Auth + Scores)  →  V3 (Jeu + API + DB + Dashboar
 | **Contrôle de version** | Git / GitHub | Git Flow simplifié, branches `feature/*`, PR avec double code review |
 
 ### Architecture Docker (5 services)
+
+```mermaid
+graph TB
+    subgraph "🐳 Docker Compose — ARCAD3X / SI3LN"
+        direction TB
+
+        subgraph "Services de données & cache"
+            PG["🐘 PostgreSQL 15<br/>:5432<br/>Sessions, scores,<br/>joueurs, auth"]
+            RD["⚡ Redis 7<br/>:6379<br/>Cache, rate limiting,<br/>tokens blacklistés"]
+        end
+
+        subgraph "Services applicatifs"
+            DJ["🎯 Django API<br/>:8000<br/>Django + Django Ninja<br/>REST + JWT + Swagger"]
+            PGY["🎮 Pygbag / WASM<br/>Build statique<br/>Jeu Pygame → WebAssembly"]
+        end
+
+        subgraph "Service reverse proxy"
+            NG["🌐 Nginx<br/>:80<br/>Reverse proxy<br/>Dashboard + WASM + API"]
+        end
+
+        subgraph "Service frontend"
+            DB["📊 Dashboard SPA<br/>HTML/CSS/JS vanilla<br/>Leaderboard, profils,<br/>analytics"]
+        end
+    end
+
+    %% Connexions
+    DJ -->|"SQLAlchemy / ORM"| PG
+    DJ -->|"Cache / Rate limit"| RD
+    DJ <--|"/api/*"| NG
+    PGY <--|"/wasm/* / static"| NG
+    DB <--|"/dashboard/*"| NG
+    DB -->|"fetch() + JWT"| DJ
+
+    %% Styles
+    classDef data fill:#1a1a2e,stroke:#e94560,color:#fff
+    classDef app fill:#16213e,stroke:#0f3460,color:#fff
+    classDef proxy fill:#0f3460,stroke:#e94560,color:#fff
+    classDef frontend fill:#1a1a2e,stroke:#533483,color:#fff
+
+    class PG,RD data
+    class DJ,PGY app
+    class NG proxy
+    class DB frontend
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  PostgreSQL  │     │    Redis     │     │   Nginx     │
-│   :5432      │     │   :6379      │     │    :80      │
-└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
-       │                    │                     │
-       └────────┬───────────┘                     │
-                │                                 │
-         ┌──────┴───────┐                  ┌──────┴───────┐
-         │  Django API  │◄─────────────────│  Dashboard   │
-         │    :8000     │                  │  SPA (JS)    │
-         └──────────────┘                  └──────────────┘
-                ▲
-                │
-         ┌──────┴───────┐
-         │   Pygbag     │
-         │ (WASM build) │
-         └──────────────┘
-```
+
+### Légende des flux
+
+| Flux | Protocole | Description |
+|------|-----------|-------------|
+| `Nginx → Django` | HTTP reverse proxy | Requêtes `/api/*` → `:8000` |
+| `Nginx → Pygbag` | Fichiers statiques | Build WASM servi comme assets |
+| `Nginx → Dashboard` | Fichiers statiques | SPA vanilla JS |
+| `Dashboard → API` | HTTP + JWT | `fetch()` avec `Authorization: Bearer` |
+| `Django → PostgreSQL` | SQLAlchemy/ORM | CRUD sessions, scores, joueurs |
+| `Django → Redis` | Protocole Redis | Rate limiting, cache tokens |
 
 ---
 
