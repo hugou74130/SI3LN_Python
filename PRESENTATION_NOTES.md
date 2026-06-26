@@ -1,4 +1,4 @@
-# 🎮 ARCAD3X / SI3LN — Notes de Présentation
+#  ARCAD3X / SI3LN — Notes de Présentation
 
 > **Auteur :** Hugo Ramos (hugou74130)
 > **Projet académique :** Holberton School France — Parcours SI3LN (Python Cohort)
@@ -6,7 +6,7 @@
 
 ---
 
-## 📌 Slide 1 — Page de Titre
+##  Slide 1 — Page de Titre
 
 **Titre :** ARCAD3X — Arcade Analytics Platform
 **Sous-titre :** SI3LN (Space Invaders III Last Night) — Un écosystème gaming complet
@@ -14,7 +14,7 @@
 
 ---
 
-## 📌 Slide 2 — Présentation du Projet
+##  Slide 2 — Présentation du Projet
 
 ### Qui a fait le projet ?
 - **Hugo Ramos** — Full-Stack Game Developer (gameplay, visuels, optimisation)
@@ -36,7 +36,7 @@ Débuté comme un simple jeu d'arcade, le projet a évolué en une **plateforme 
 
 ---
 
-## 📌 Slide 3 — D'où vient l'idée ?
+##  Slide 3 — D'où vient l'idée ?
 
 ### Inspiration
 - **Space Invaders classique** → Le gameplay de base tire ses racines du shoot 'em up rétro
@@ -51,7 +51,7 @@ V1 (Jeu seul)  →  V2 (Jeu + Auth + Scores)  →  V3 (Jeu + API + DB + Dashboar
 
 ---
 
-## 📌 Slide 4 — Technologies Utilisées
+##  Slide 4 — Technologies Utilisées
 
 ### Tech Stack & Justifications
 
@@ -90,7 +90,7 @@ V1 (Jeu seul)  →  V2 (Jeu + Auth + Scores)  →  V3 (Jeu + API + DB + Dashboar
 
 ---
 
-## 📌 Slide 5 — Démo Live / Vidéo
+##  Slide 5 — Démo Live / Vidéo
 
 ### Points forts à montrer en démo
 1. **Menu principal** → START (mode invité) vs CONTINUE (connexion)
@@ -116,7 +116,7 @@ docker compose up --build
 
 ---
 
-## 📌 Slide 6 — Planning / Timeline
+##  Slide 6 — Planning / Timeline
 
 ### Phases du projet
 
@@ -137,7 +137,7 @@ docker compose up --build
 
 ---
 
-## 📌 Slide 7 — Leçons Apprises
+##  Slide 7 — Leçons Apprises
 
 ### 🎓 Ce qui a bien marché
 - **Architecture modulaire** : Séparer jeu, API et dashboard a permis le travail en parallèle
@@ -146,14 +146,14 @@ docker compose up --build
 - **Django Ninja** : Docs OpenAPI auto-générées, validation Pydantic = gain de temps énorme
 - **Sécurité par couches** : Facade pattern + middleware = défense en profondeur
 
-### ⚠️ Défis rencontrés
+###  Défis rencontrés
 - **Merge conflicts** : Travail en parallèle sur `feature/*` branches → conflits fréquents sur `game.py` et `entities.py`
 - **Intégration jeu ↔ API** : Faire communiquer le client Pygame avec l'API REST (gestion asynchrone, JWT)
 - **Pygbag/WASM** : Compiler du Pygame pour le web → limitations (audio, performance)
 - **Gestion des migrations Django** : Conflits de migration lors de modifications de modèles en parallèle
 - **State machine du jeu** : Gérer les transitions entre menus, gameplay, pause, game over de manière propre
 
-### 💡 Ce qu'on ferait différemment
+###  Ce qu'on ferait différemment
 - Commencer avec Docker dès le début (pas seulement en Phase 5)
 - Plus de tests unitaires dès le MVP (pas seulement en fin de projet)
 - Utiliser un vrai framework frontend (React/Vue) pour le dashboard si le temps le permettait
@@ -161,7 +161,7 @@ docker compose up --build
 
 ---
 
-## 📌 Slide 8 — Version Post-MVP
+##  Slide 8 — Version Post-MVP
 
 ### Fonctionnalités ajoutées après le MVP initial
 
@@ -184,7 +184,7 @@ docker compose up --build
 
 ---
 
-## 📌 Slide 9 — Code Snippets
+##  Slide 9 — Code Snippets
 
 ### Exemple 1 : Authentification JWT (création de token)
 ```python
@@ -277,7 +277,7 @@ async function getLeaderboard(worldId = null, limit = 10) {
 
 ---
 
-## 📌 Slide 10 — Outils de Collaboration
+##  Slide 10 — Outils de Collaboration
 
 | Outil | Usage |
 |-------|-------|
@@ -291,7 +291,7 @@ async function getLeaderboard(worldId = null, limit = 10) {
 
 ---
 
-## 📌 Slide 11 — Défis Rencontrés (détaillé)
+##  Slide 11 — Défis Rencontrés (détaillé)
 
 ### 1. Communication Jeu ↔ API
 Le client Pygame (desktop) doit communiquer avec l'API REST (serveur) via HTTP + JWT.
@@ -315,7 +315,7 @@ Couvrir un projet full-stack (jeu + API + dashboard) avec des tests automatisés
 
 ---
 
-## 📌 Slide 12 — Questions ?
+##  Slide 12 — Questions ?
 
 ### Liens utiles
 - **Repo GitHub :** https://github.com/hugou74130/SI3LN_Python
@@ -323,12 +323,12 @@ Couvrir un projet full-stack (jeu + API + dashboard) avec des tests automatisés
 - **Dashboard :** http://localhost (quand Docker tourne)
 
 ### Points à retenir
-- ✅ Projet **full-stack** : Jeu + API + Dashboard
-- ✅ **Sécurité** : JWT, SHA-256, rate limiting, XSS prevention
-- ✅ **18 suites de tests** automatisés
-- ✅ **Docker Compose** : 5 services, un seul `up --build`
-- ✅ **67 commits**, travail en binôme avec double code review
-- ✅ **Déployable** en local et en navigateur (WASM)
+-  Projet **full-stack** : Jeu + API + Dashboard
+-  **Sécurité** : JWT, SHA-256, rate limiting, XSS prevention
+-  **18 suites de tests** automatisés
+-  **Docker Compose** : 5 services, un seul `up --build`
+-  **67 commits**, travail en binôme avec double code review
+-  **Déployable** en local et en navigateur (WASM)
 
 ---
 
