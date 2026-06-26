@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="css/modules/games.css?v=3">
     <link rel="stylesheet" href="css/modules/auth.css?v=3">
     <link rel="stylesheet" href="css/modules/help.css?v=3">
+    <link rel="stylesheet" href="css/modules/leaderboard.css?v=3">
     <link rel="stylesheet" href="css/language-switcher.css?v=3">
     <link rel="stylesheet" href="css/responsive.css?v=3">
     <link rel="stylesheet" href="css/mobile.css?v=3">
@@ -44,6 +45,12 @@
                 <li class="menu-item" data-page="games">
                     <span class="menu-icon">🎮</span>
                     <span class="menu-label">Games</span>
+                </li>
+
+                <!-- Leaderboard + trophée -->
+                <li class="menu-item" data-page="leaderboard">
+                    <span class="menu-icon">🏆</span>
+                    <span class="menu-label">Leaderboard</span>
                 </li>
                 
                 <!-- Help + point d'interrogation -->
@@ -458,6 +465,44 @@
                 </div>
             </div>
 
+            <!-- Page Leaderboard -->
+            <div id="leaderboard-page" class="page hidden">
+                <div class="container">
+                    <h1 class="page-title">🏆 Leaderboard</h1>
+                    <div class="leaderboard-controls">
+                        <div class="leaderboard-filter-group">
+                            <label for="leaderboard-world-filter" data-i18n="leaderboard.filterWorld">World:</label>
+                            <select id="leaderboard-world-filter">
+                                <option value="" data-i18n="leaderboard.allWorlds">All Worlds</option>
+                                <option value="0">🏠 Home</option>
+                                <option value="1">🌍 World 1</option>
+                                <option value="2">🔥 World 2</option>
+                                <option value="3">❄️ World 3</option>
+                                <option value="4">🌿 World 4</option>
+                            </select>
+                        </div>
+                        <div class="leaderboard-filter-group">
+                            <label for="leaderboard-limit-filter" data-i18n="leaderboard.limit">Show:</label>
+                            <select id="leaderboard-limit-filter">
+                                <option value="10">10</option>
+                                <option value="25">25</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                        <button class="leaderboard-refresh-btn" id="leaderboard-refresh">🔄 Refresh</button>
+                    </div>
+                    <div id="leaderboard-table-wrapper">
+                        <div id="leaderboard-table"></div>
+                    </div>
+                    <div class="leaderboard-pagination" id="leaderboard-pagination">
+                        <button class="lb-page-btn" id="lb-prev" data-i18n="leaderboard.prev">← Previous</button>
+                        <span class="lb-page-info" id="lb-page-info">1 / 1</span>
+                        <button class="lb-page-btn" id="lb-next" data-i18n="leaderboard.next">Next →</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Page Games -->
             <div id="games-page" class="page hidden">
                 <div class="container">
@@ -685,6 +730,7 @@
     <script src="js/modules/games.js?v=4"></script>
     <script src="js/modules/auth.js?v=4"></script>
     <script src="js/modules/help.js?v=4"></script>
+    <script src="js/modules/leaderboard.js?v=4"></script>
     <script src="js/modules/mobile.js?v=4"></script>
 
     <!-- Main App -->

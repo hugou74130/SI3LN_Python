@@ -390,6 +390,9 @@ class AppManager {
             case 'about':
                 this.loadAbout();
                 break;
+            case 'leaderboard':
+                this.loadLeaderboard();
+                break;
         }
     }
     
@@ -461,6 +464,20 @@ class AppManager {
                     <p>${window.i18n.t('about.copyright')}</p>
                 </div>
             `;
+        }
+    }
+
+    loadLeaderboard() {
+        if (window.leaderboardModule) {
+            window.leaderboardModule.currentPage = 1;
+            window.leaderboardModule.worldFilter = '';
+            window.leaderboardModule.limit = 50;
+            // Reset selects
+            const ws = document.getElementById('leaderboard-world-filter');
+            const ls = document.getElementById('leaderboard-limit-filter');
+            if (ws) ws.value = '';
+            if (ls) ls.value = '50';
+            window.leaderboardModule.loadData();
         }
     }
     

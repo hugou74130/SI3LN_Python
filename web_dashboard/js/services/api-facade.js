@@ -122,6 +122,48 @@ class ApiFacadeService {
                 player_username: entry.player_username,
                 score: entry.score,
                 level_reached: entry.level_reached,
+                world_id: entry.world_id || entry.world,
+                character_used: entry.character_used,
+                duration_sec: entry.duration_sec,
+                accuracy_pct: entry.accuracy_pct,
+                enemies_killed: entry.enemies_killed,
+                created_at: entry.created_at,
+            }));
+        }
+        return [];
+    }
+
+    // ── Global Leaderboard with filters ────────────────────────────
+
+    async getLeaderboardGlobal(worldId = null, limit = 50) {
+        let url = `/game/leaderboard/global?limit=${limit}`;
+        if (worldId !== null) url += `&world=${worldId}`;
+        const data = await this._raw.request(url);
+        if (data && typeof data === 'object' && Array.isArray(data.entries)) {
+            return data.entries.map(entry => ({
+                player_username: entry.player_name || entry.player_username,
+                score: entry.score,
+                level_reached: entry.level_id || entry.level_reached,
+                rank: entry.rank || 0,
+                world_id: entry.world_id,
+                character_used: entry.character_used,
+                duration_sec: entry.duration_sec,
+                accuracy_pct: entry.accuracy_pct,
+                enemies_killed: entry.enemies_killed,
+                created_at: entry.created_at,
+            }));
+        }
+        if (Array.isArray(data)) {
+            return data.map(entry => ({
+                player_username: entry.player_username || entry.player_name,
+                score: entry.score,
+                level_reached: entry.level_reached,
+                world_id: entry.world_id || entry.world,
+                character_used: entry.character_used,
+                duration_sec: entry.duration_sec,
+                accuracy_pct: entry.accuracy_pct,
+                enemies_killed: entry.enemies_killed,
+                created_at: entry.created_at,
             }));
         }
         return [];

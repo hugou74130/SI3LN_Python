@@ -39,6 +39,25 @@ class I18nManager {
                     welcomeUser: "Welcome,",
                     pleaseLogin: "Please log in"
                 },
+                // Leaderboard page
+                leaderboard: {
+                    title: "🏆 Leaderboard",
+                    filterWorld: "World:",
+                    allWorlds: "All Worlds",
+                    limit: "Show:",
+                    prev: "← Previous",
+                    next: "Next →",
+                    noScores: "No scores yet. Be the first to play!",
+                    loading: "Loading...",
+                    rank: "Rank",
+                    player: "Player",
+                    score: "Score",
+                    level: "Lvl",
+                    character: "Char",
+                    time: "Time",
+                    accuracy: "Acc",
+                    date: "Date"
+                },
                 // Login page
                 login: {
                     title: "🔐 Login to ARCAD3X",
@@ -262,6 +281,25 @@ class I18nManager {
                     leaderboardError: "Impossible de charger le classement.",
                     welcomeUser: "Bienvenue,",
                     pleaseLogin: "Veuillez vous connecter"
+                },
+                // Leaderboard page
+                leaderboard: {
+                    title: "🏆 Classement",
+                    filterWorld: "Monde :",
+                    allWorlds: "Tous les mondes",
+                    limit: "Afficher :",
+                    prev: "← Précédent",
+                    next: "Suivant →",
+                    noScores: "Aucun score pour l'instant. Soyez le premier à jouer !",
+                    loading: "Chargement...",
+                    rank: "Rang",
+                    player: "Joueur",
+                    score: "Score",
+                    level: "Niv.",
+                    character: "Perso",
+                    time: "Durée",
+                    accuracy: "Préc.",
+                    date: "Date"
                 },
                 // Login page
                 login: {
