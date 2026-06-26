@@ -71,37 +71,35 @@ V1 (Jeu seul)  →  V2 (Jeu + Auth + Scores)  →  V3 (Jeu + API + DB + Dashboar
 
 ```mermaid
 graph TB
-    subgraph "🐳 Docker Compose — ARCAD3X / SI3LN"
+    subgraph DC["Docker Compose — ARCAD3X / SI3LN"]
         direction TB
 
-        subgraph "Services de données & cache"
-            PG["🐘 PostgreSQL 15<br/>:5432<br/>Sessions, scores,<br/>joueurs, auth"]
-            RD["⚡ Redis 7<br/>:6379<br/>Cache, rate limiting,<br/>tokens blacklistés"]
+        subgraph DATA["Données & Cache"]
+            PG["PostgreSQL 15 :5432"]
+            RD["Redis 7 :6379"]
         end
 
-        subgraph "Services applicatifs"
-            DJ["🎯 Django API<br/>:8000<br/>Django + Django Ninja<br/>REST + JWT + Swagger"]
-            PGY["🎮 Pygbag / WASM<br/>Build statique<br/>Jeu Pygame → WebAssembly"]
+        subgraph APP["Applicatif"]
+            DJ["Django API :8000"]
+            PGY["Pygbag / WASM"]
         end
 
-        subgraph "Service reverse proxy"
-            NG["🌐 Nginx<br/>:80<br/>Reverse proxy<br/>Dashboard + WASM + API"]
+        subgraph PROXY["Reverse Proxy"]
+            NG["Nginx :80"]
         end
 
-        subgraph "Service frontend"
-            DB["📊 Dashboard SPA<br/>HTML/CSS/JS vanilla<br/>Leaderboard, profils,<br/>analytics"]
+        subgraph FRONT["Frontend"]
+            DB["Dashboard SPA (JS)"]
         end
     end
 
-    %% Connexions
-    DJ -->|"SQLAlchemy / ORM"| PG
-    DJ -->|"Cache / Rate limit"| RD
-    DJ <--|"/api/*"| NG
-    PGY <--|"/wasm/* / static"| NG
-    DB <--|"/dashboard/*"| NG
-    DB -->|"fetch() + JWT"| DJ
+    DJ -->|SQLAlchemy/ORM| PG
+    DJ -->|Cache/Rate limit| RD
+    NG -->|/api| DJ
+    NG -->|/wasm| PGY
+    NG -->|/dashboard| DB
+    DB -->|fetch + JWT| DJ
 
-    %% Styles
     classDef data fill:#1a1a2e,stroke:#e94560,color:#fff
     classDef app fill:#16213e,stroke:#0f3460,color:#fff
     classDef proxy fill:#0f3460,stroke:#e94560,color:#fff
