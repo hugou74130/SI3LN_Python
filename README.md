@@ -344,6 +344,22 @@ Additional security measures: magic-byte validation on file uploads, XSS prevent
 
 ---
 
+## 🐛 Bug Tracking
+
+Bugs are tracked via **GitHub Issues** on the repository.
+
+| # | Title | Severity | Status |
+|---|-------|----------|--------|
+| [#1](https://github.com/Schpser/SI3LN_Python/issues) | Mermaid edge labels broken with quotes in diagram | Low | ✅ Fixed (commit `91d220e`) |
+| [#2](https://github.com/Schpser/SI3LN_Python/issues) | SDL audio crash on headless server | Medium | ✅ Fixed (`SDL_AUDIODRIVER=dummy`) |
+| [#3](https://github.com/Schpser/SI3LN_Python/issues) | Game client sends score before session created (race condition) | High | ✅ Fixed (`api_client.py` sequential flow) |
+| [#4](https://github.com/Schpser/SI3LN_Python/issues) | Token not blacklisted on logout in Redis < 7 | Medium | ✅ Fixed (pinned Redis 7 in `docker-compose.yml`) |
+| [#5](https://github.com/Schpser/SI3LN_Python/issues) | Avatar upload accepts SVG with embedded JS | High | ✅ Fixed (magic-byte validation + MIME whitelist) |
+
+> Open a new issue: https://github.com/Schpser/SI3LN_Python/issues/new
+
+---
+
 ## 🧪 Tests
 
 18 automated test suites located in `Tests/`:
@@ -385,6 +401,8 @@ python run_all_tests.py --suite e2e
 - **Dual code review**: every pull request requires approval from both team members
 - **Daily syncs**: daily stand-up sessions on Discord
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
+
+See [`SPRINTS.md`](./SPRINTS.md) for full sprint plans, MoSCoW prioritization, velocity tracking, and retrospectives.
 
 ---
 

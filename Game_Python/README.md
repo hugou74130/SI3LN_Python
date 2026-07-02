@@ -100,7 +100,8 @@ SI3LN_Python/
 ### Installation
 ```bash
 # Cloner le projet
-cd /root/SI3LN_Python
+git clone https://github.com/Schpser/SI3LN_Python.git
+cd SI3LN_Python/Game_Python
 
 # Installer les dépendances
 pip install -r requirements.txt

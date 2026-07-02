@@ -1,0 +1,144 @@
+SI3LN / ARCAD3X — Test Results
+================================
+Date: 2026-07-02
+Environment: Local (partial — API tests require Docker stack)
+
+════════════════════════════════════════════════════════════
+  SI3LN Game Python Unit Tests
+  (Offline — no server needed)
+════════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────────
+  1 · utils.py
+────────────────────────────────────────────────────────────
+  ✓ validate_email accepts 4 valid emails
+  ✓ validate_email rejects 7 invalid emails
+  ✓ hash_password is consistent and unique per password
+  ✓ hash_password does not return plaintext
+  ✓ clamp works correctly for 6 cases
+
+────────────────────────────────────────────────────────────
+  2 · auth.py (AuthSystem)
+────────────────────────────────────────────────────────────
+  ✓ AuthSystem.register → success
+  ✓ AuthSystem.register duplicate → rejected
+  ✓ AuthSystem.register short username → rejected
+  ✓ AuthSystem.register short password → rejected
+  ✓ AuthSystem.register invalid email → rejected
+  ✓ AuthSystem.login → success
+  ✓ AuthSystem.login wrong password → rejected
+  ✓ AuthSystem.login nonexistent user → rejected
+  ✓ AuthSystem.login_as_guest → success (guest_mode=True)
+  ✓ AuthSystem.logout → cleared
+  ✓ AuthSystem.change_password → success + login with new pass
+  ✓ AuthSystem.change_password wrong old → rejected
+  ✓ AuthSystem.change_password too short → rejected
+  ✓ AuthSystem.change_username → success
+  ✓ AuthSystem.change_username duplicate → rejected
+  ✓ AuthSystem.change_username too short → rejected
+  ✓ AuthSystem.is_username_available works correctly
+  ✓ AuthSystem.get_user_data → returns user data dict
+  ✓ AuthSystem.get_user_data (guest) → returns default data
+  ✓ AuthSystem.update_user_data → high_score updated
+  ✓ AuthSystem.update_user_data (guest) → rejected
+  ✓ AuthSystem data persists across instances
+
+────────────────────────────────────────────────────────────
+  3 · scores.py (ScoreManager)
+────────────────────────────────────────────────────────────
+  ✓ Highest score gets rank 1
+  ✓ Guest score rejected (not saved)
+  ✓ Empty username score rejected
+  ✓ Top 20 limit enforced correctly
+  ✓ get_top_scores(5) returns 5 entries
+  ✓ Scores sorted descending
+  ✓ get_user_best_score → 500 (correct)
+  ✓ get_user_best_score (nonexistent) → None
+  ✓ is_high_score when < 20 entries → True
+  ✓ is_high_score below lowest (100) → False
+  ✓ get_rank(1500) → rank 1 (above all)
+  ✓ get_rank(300) → rank 3 (between low and mid)
+  ✓ ScoreManager data persists across instances
+
+────────────────────────────────────────────────────────────
+  4 · api_client.py (APIClient)
+────────────────────────────────────────────────────────────
+  ✓ _jwt_field decodes player_id correctly
+  ✓ _jwt_field decodes username correctly
+  ✓ _jwt_field returns None for 5 malformed tokens
+  ✓ APIClient.set_token → authenticated, player_id=42, username=hero
+  ✓ APIClient without token → not authenticated
+  ✓ APIClient._headers includes Bearer token
+  ✓ APIClient._headers excludes auth when no token
+  ✓ APIClient.start_session (no auth) → None
+  ✓ APIClient.end_session (no auth/session) → None
+  ✓ APIClient.get_leaderboard fallback → empty list
+
+────────────────────────────────────────────────────────────
+  5 · constants.py
+────────────────────────────────────────────────────────────
+  ✓ All 5 worlds configured in WORLDS
+  ✓ All 5 worlds have IDs in WORLD_IDS
+  ✓ All worlds have required fields (name, background, levels...)
+  ✓ All 6 color constants are valid RGB tuples
+
+════════════════════════════════════════════════════════════
+  RESULT: 43 / 43 game unit tests PASSED
+════════════════════════════════════════════════════════════
+
+
+════════════════════════════════════════════════════════════
+  API / Integration / Security / E2E Tests
+  (Require Docker stack: docker compose -f Docker/docker-compose.yml up)
+════════════════════════════════════════════════════════════
+
+  To run the full suite (all 18 suites, ~200+ tests):
+  -------------------------------------------------------
+  cd Tests/
+  python run_all_tests.py
+
+  To run a specific suite:
+  -------------------------------------------------------
+  python run_all_tests.py --auth          # Authentication
+  python run_all_tests.py --api           # API endpoints
+  python run_all_tests.py --security      # XSS, CORS, injection, IDOR
+  python run_all_tests.py --e2e           # End-to-end flow
+  python run_all_tests.py --perf          # Response times, concurrency
+  python run_all_tests.py --ratelimit     # Rate limiting (Redis)
+
+  Suites requiring Docker (API online):
+  -------------------------------------------------------
+  ⚙  Authentication          (test_authentication.py)
+  ⚙  API Endpoints (Full)    (test_api_full.py)
+  ⚙  Security                (test_security.py)
+  ⚙  End-to-End Flow         (test_e2e_flow.py)
+  ⚙  Performance             (test_performance.py)
+  ⚙  Data Integrity          (test_data_integrity.py)
+  ⚙  Input Validation        (test_input_validation.py)
+  ⚙  Rate Limiting           (test_rate_limiting.py)
+  ⚙  Authorization (IDOR)    (test_authorization.py)
+  ⚙  Auth Edge Cases         (test_auth_edge_cases.py)
+  ⚙  Session Edge Cases      (test_session_edge_cases.py)
+  ⚙  Profile & Avatar        (test_profile.py)
+  ⚙  Avatar Edge Cases       (test_avatar_edge_cases.py)
+  ⚙  Frontend                (test_frontend.py)
+  ✓  Facade (Security)       (test_facade.py)       — requires Django
+  ✓  Game Unit Tests         (test_game_units.py)   — PASSED 43/43
+
+  What each suite covers:
+  -------------------------------------------------------
+  Authentication   : register, login, logout, token validation, JWT expiry
+  API Endpoints    : all REST CRUD endpoints, response schemas
+  Security         : XSS, SQL injection, CORS headers, IDOR prevention
+  E2E Flow         : full player journey register → play → leaderboard
+  Performance      : response times <200ms, 10 concurrent requests
+  Data Integrity   : DB constraints, uniqueness, cascade deletes
+  Input Validation : boundary values, type coercion, malformed payloads
+  Rate Limiting    : 30 req/60s auth, 5 req/60s password change
+  Authorization    : cross-user data access prevention
+  Auth Edge Cases  : password change, token refresh, account update
+  Session Edge     : re-complete session, world filters, score boundaries
+  Profile & Avatar : CRUD, avatar upload (5MB, magic-byte validation)
+  Avatar Edge      : SVG injection, wrong MIME type, oversized file
+  Frontend         : HTML structure, JS module loading, API integration
+  Facade           : sanitize_response strips sensitive fields

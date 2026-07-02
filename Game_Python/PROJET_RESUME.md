@@ -128,19 +128,19 @@ SI3LN_Python/
 
 ### Méthode 1 : Lanceur avec Vérifications
 ```bash
-cd /root/SI3LN_Python
+cd SI3LN_Python/Game_Python
 python3 launch.py
 ```
 
 ### Méthode 2 : Lancement Direct
 ```bash
-cd /root/SI3LN_Python
+cd SI3LN_Python/Game_Python
 python3 main.py
 ```
 
 ### Méthode 3 : Tests Préalables
 ```bash
-cd /root/SI3LN_Python
+cd SI3LN_Python/Game_Python
 python3 test_modules.py      # Tester les modules
 python3 check_assets.py      # Vérifier les assets
 python3 main.py              # Lancer le jeu
