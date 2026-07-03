@@ -12,16 +12,30 @@ load_dotenv()
 # Build paths inside the project
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Insecure placeholders — allowed ONLY when DEBUG is on (local dev).
+_INSECURE_SECRET_KEY = 'django-insecure-dev-key-change-this-in-production'
+_INSECURE_JWT_PEPPER = 'default-pepper-change-in-production'
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key-change-this-in-production')
+SECRET_KEY = os.getenv('SECRET_KEY', _INSECURE_SECRET_KEY)
 
 # JWT Settings
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', SECRET_KEY)
-JWT_PEPPER = os.getenv('JWT_PEPPER', 'default-pepper-change-in-production')
+JWT_PEPPER = os.getenv('JWT_PEPPER', _INSECURE_JWT_PEPPER)
 JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '24'))
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+# Defaults to False so an unconfigured deploy is safe; set DEBUG=True in dev.
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
+
+# Refuse to boot in production with the known insecure dev secrets — otherwise
+# anyone could forge JWTs (JWT_SECRET_KEY falls back to SECRET_KEY).
+if not DEBUG:
+    from django.core.exceptions import ImproperlyConfigured
+    if SECRET_KEY == _INSECURE_SECRET_KEY:
+        raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG=False.")
+    if JWT_PEPPER == _INSECURE_JWT_PEPPER:
+        raise ImproperlyConfigured("JWT_PEPPER must be set when DEBUG=False.")
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 

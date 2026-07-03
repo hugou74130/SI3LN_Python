@@ -82,9 +82,12 @@ def main():
     
     # Launch game
     try:
+        import asyncio
+        import pygame
         from game import Game
+        pygame.init()               # Game.__init__ needs video/font already initialized
         game = Game()
-        game.run()
+        asyncio.run(game.run())     # game.run() is a coroutine — must be awaited
     except KeyboardInterrupt:
         print("\n\n👋 Thanks for playing!")
     except Exception as e:

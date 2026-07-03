@@ -20,12 +20,16 @@ class LevelSelector:
         self.active = False
         self.view = "WORLDS"  # "WORLDS" or "LEVELS"
         
-        # World unlock state: Boot Camp is playable by default; other worlds
-        # are unlocked once Boot Camp is completed.
+        # World unlock state: worlds unlock sequentially — finishing all levels
+        # of a world unlocks the next one. Boot Camp is playable by default.
+        # Progress is restored from the saved profile in open() (see _restore_from_auth).
         self.boot_camp_completed = False
+        self.world_order = list(self.worlds.keys())
         self.world_unlocked = {world: False for world in self.worlds}
         if "BootCamp" in self.world_unlocked:
             self.world_unlocked["BootCamp"] = True
+        # Set by game.py so open() can restore/persist progress across sessions.
+        self.auth = None
         
         # Load world backgrounds
         self.world_backgrounds = {}
@@ -144,9 +148,49 @@ class LevelSelector:
         """Open level selector"""
         self.active = True
         self.view = "WORLDS"  # Start with world selection
+        # Restore unlock progress from the saved profile every time we open,
+        # so it survives across sessions (was previously lost on every launch).
+        self._restore_from_auth()
         # Update selected state for cards
         for card in self.world_cards:
             card.selected = (card.world_name == self.selected_world)
+
+    def _restore_from_auth(self):
+        """Rebuild world_unlocked from the persisted profile (if logged in)."""
+        if not self.auth:
+            return
+        data = self.auth.get_user_data()
+        if not data:
+            return
+        for world_name in data.get("unlocked_worlds", []):
+            if world_name in self.world_unlocked:
+                self.world_unlocked[world_name] = True
+        # Backward-compat with older saves that only stored a boot-camp flag.
+        if data.get("boot_camp_completed"):
+            self.boot_camp_completed = True
+            self._unlock_next("BootCamp", persist=False)
+
+    def _unlock_next(self, completed_world, persist=True):
+        """Unlock the world that follows *completed_world* in world_order."""
+        if completed_world in self.world_order:
+            self.world_unlocked[completed_world] = True
+            idx = self.world_order.index(completed_world)
+            if idx + 1 < len(self.world_order):
+                self.world_unlocked[self.world_order[idx + 1]] = True
+        if persist and self.auth and not self.auth.guest_mode and self.auth.current_user:
+            unlocked_now = [w for w, ok in self.world_unlocked.items() if ok]
+            self.auth.update_user_data(
+                unlocked_worlds=unlocked_now,
+                boot_camp_completed=self.boot_camp_completed,
+            )
+
+    def unlock_next_world(self, completed_world, auth=None):
+        """Called when a world's levels are all cleared — unlocks the next world."""
+        if auth is not None:
+            self.auth = auth
+        if completed_world == "BootCamp":
+            self.boot_camp_completed = True
+        self._unlock_next(completed_world, persist=True)
     
     def set_world_unlocked(self, world_name, unlocked=True):
         """Set world unlock status"""
@@ -154,13 +198,12 @@ class LevelSelector:
             self.world_unlocked[world_name] = unlocked
     
     def set_boot_camp_completed(self, completed=True, auth=None):
-        """Mark Boot Camp as completed - unlocks Space world"""
+        """Mark Boot Camp as completed — unlocks the next world (Space)."""
+        if auth is not None:
+            self.auth = auth
         self.boot_camp_completed = completed
         if completed:
-            self.world_unlocked["Space"] = True
-        # Persist to local auth data when available
-        if auth and not auth.guest_mode and auth.current_user:
-            auth.update_user_data(boot_camp_completed=completed)
+            self.unlock_next_world("BootCamp", auth)
     
     def close(self):
         """Close level selector"""

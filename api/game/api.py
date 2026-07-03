@@ -105,10 +105,15 @@ def _verify_replay_hash(replay_hash: str, score: int, enemies_killed: int,
 
 
 def _refresh_leaderboard_ranks():
-    """Refresh the materialized view leaderboard_ranks."""
+    """Refresh the materialized view leaderboard_ranks.
+
+    Runs the DROP and CREATE as separate statements: SQLite's driver (used in
+    dev) rejects multiple statements in a single execute() call, which would
+    otherwise leave the view permanently stale in the dev environment.
+    """
     with connection.cursor() as cursor:
+        cursor.execute("DROP TABLE IF EXISTS leaderboard_ranks;")
         cursor.execute("""
-            DROP TABLE IF EXISTS leaderboard_ranks;
             CREATE TABLE leaderboard_ranks AS
             SELECT
                 ROW_NUMBER() OVER (ORDER BY MAX(le.score) DESC) AS rank,
@@ -202,14 +207,24 @@ def list_players(request, limit: int = 50, offset: int = 0):
 @router.post("/players", response=PlayerSchema, tags=["Players"])
 def create_player(request, payload: PlayerCreateSchema):
     """Create a new player (public for game registration)"""
-    player = Player.objects.create(**payload.dict())
+    from django.db import IntegrityError
+    from ninja.responses import Response
+    try:
+        player = Player.objects.create(**payload.dict())
+    except IntegrityError:
+        # Duplicate username (or other constraint) — return 409 instead of a 500
+        return Response({"error": "A player with that username already exists."}, status=409)
     return player
 
 
 @router.get("/players/{player_id}", response=PlayerSchema, tags=["Players"], auth=jwt_auth)
 def get_player(request, player_id: int):
-    """Get a specific player by ID (requires authentication)"""
-    return get_object_or_404(Player, id=player_id)
+    """Get a specific player by ID (own player only, unless staff)."""
+    from ninja.responses import Response
+    player = get_object_or_404(Player, id=player_id)
+    if player.user != request.auth and not request.auth.is_staff:
+        return Response({"error": "You can only view your own player."}, status=403)
+    return player
 
 
 @router.put("/players/{player_id}", response=PlayerSchema, tags=["Players"], auth=jwt_auth)
@@ -251,8 +266,13 @@ def list_sessions(
     ``limit`` and ``offset`` work just like on ``/players``.
     """
     sessions = GameSession.objects.all()
-    if player_id:
-        sessions = sessions.filter(player_id=player_id)
+    # Non-staff callers only ever see their own sessions — a spoofed
+    # player_id can't leak another player's data.
+    if request.auth.is_staff:
+        if player_id:
+            sessions = sessions.filter(player_id=player_id)
+    else:
+        sessions = sessions.filter(player__user=request.auth)
     if world_id:
         sessions = sessions.filter(world_id=world_id)
     sessions = sessions.order_by("-started_at")
@@ -276,14 +296,24 @@ def create_session(request, payload: GameSessionCreateSchema):
     if player.user != request.auth:
         from ninja.responses import Response
         return Response({"error": "You can only create sessions for your own players."}, status=403)
-    session = GameSession.objects.create(**payload.dict())
+    from django.db import IntegrityError
+    from ninja.responses import Response
+    try:
+        session = GameSession.objects.create(**payload.dict())
+    except IntegrityError:
+        # e.g. invalid world_id foreign key — return 400 instead of a 500
+        return Response({"error": "Invalid session data (unknown world_id?)."}, status=400)
     return session
 
 
 @router.get("/sessions/{session_id}", response=GameSessionSchema, tags=["Game Sessions"], auth=jwt_auth)
 def get_session(request, session_id: int):
-    """Get a specific game session (requires authentication)"""
-    return get_object_or_404(GameSession, id=session_id)
+    """Get a specific game session (own session only, unless staff)."""
+    from ninja.responses import Response
+    session = get_object_or_404(GameSession, id=session_id)
+    if session.player.user != request.auth and not request.auth.is_staff:
+        return Response({"error": "You can only view your own sessions."}, status=403)
+    return session
 
 
 @router.patch("/sessions/{session_id}", response=GameSessionSchema, tags=["Game Sessions"], auth=jwt_auth)
@@ -722,15 +752,34 @@ def update_my_profile(request, payload: ProfileUpdateSchema):
     """Update current user's profile (requires authentication)"""
     from .models import Player, PlayerAchievement
     
+    import re
+    from django.contrib.auth.models import User
+    from ninja.responses import Response
+
     user = request.auth
     player = get_object_or_404(Player, user=user)
-    
+
+    # Validate before mutating so a bad value returns 400/409 instead of a 500.
+    if payload.username is not None:
+        if not re.fullmatch(r'[A-Za-z0-9_]{3,30}', payload.username):
+            return Response({"error": "Invalid username (3-30 chars, letters/numbers/underscore)."}, status=400)
+        taken = (User.objects.filter(username=payload.username).exclude(pk=user.pk).exists()
+                 or Player.objects.filter(username=payload.username).exclude(pk=player.pk).exists())
+        if taken:
+            return Response({"error": "That username is already taken."}, status=409)
+
+    if payload.email is not None:
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', payload.email):
+            return Response({"error": "Invalid email format."}, status=400)
+        if User.objects.filter(email=payload.email).exclude(pk=user.pk).exists():
+            return Response({"error": "That email is already in use."}, status=409)
+
     # Update only provided fields
     if payload.username is not None:
         player.username = payload.username
         user.username = payload.username
         user.save()
-    
+
     if payload.email is not None:
         player.email = payload.email
         user.email = payload.email

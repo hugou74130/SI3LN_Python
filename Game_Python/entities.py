@@ -240,12 +240,13 @@ class Player(pygame.sprite.Sprite):
 
 class Enemy(pygame.sprite.Sprite):
     """Enemy entity"""
-    def __init__(self, x, y, image, screen_width, level=1, harmless=False, can_shoot=True, behavior="normal"):
+    def __init__(self, x, y, image, screen_width, screen_height, level=1, harmless=False, can_shoot=True, behavior="normal"):
         super().__init__()
         self.image = image
         self.original_image = image
         self.rect = self.image.get_rect(center=(x, y))
         self.screen_width = screen_width
+        self.screen_height = screen_height
         
         # Mode flags
         self.harmless = harmless
@@ -267,7 +268,7 @@ class Enemy(pygame.sprite.Sprite):
         # Boundaries (enemy play area)
         self.min_x = 20
         self.max_x = screen_width - 20
-        self.max_y = screen_width // 2  # Don't go too low
+        self.max_y = screen_height // 2  # Don't descend past mid-screen (vertical bound)
     
     def update(self):
         """Update enemy position"""
@@ -524,6 +525,7 @@ class SpecialAttack(pygame.sprite.Sprite):
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.duration = min(2000 + (level * 200), 4000)  # 4s
+        self.spawn_time = pygame.time.get_ticks()  # for time-based expiry
         self.damage = 1 + (level // 3)  # Damage dealt on player contact
         
         if world == "Space":
@@ -566,11 +568,19 @@ class SpecialAttack(pygame.sprite.Sprite):
             self.max_bounces = 3
     
     def update(self):
+        # Desert (sand) and Forest (roots) are stationary overlays with no
+        # movement path — expire them after their duration so they don't
+        # linger forever when the player avoids/survives them.
+        if self.world in ("Desert", "Forest"):
+            if pygame.time.get_ticks() - self.spawn_time >= self.duration:
+                self.kill()
+            return
+
         if self.world == "Space":
             self.rect.y += self.speed
             if self.rect.top > self.screen_height:
                 self.kill()
-                
+
         elif self.world == "Marine":
             self.rect.y += self.speed
             if self.rect.top > self.screen_height:

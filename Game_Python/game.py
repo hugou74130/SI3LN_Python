@@ -123,6 +123,8 @@ class Game:
         # Initialize screens
         self.profile_screen = ProfileScreen(self.screen, self.auth, self.players, is_browser=self._wasm)
         self.level_selector = LevelSelector(self.screen, WORLDS)
+        # Give the selector the auth handle so it can restore/persist world-unlock progress.
+        self.level_selector.auth = self.auth
 
         # Create UI
         self.create_ui()
@@ -719,6 +721,8 @@ class Game:
                 max_levels = WORLDS[self.current_world]["levels"]
                 if self.current_level > max_levels:
                     self._end_api_session()
+                    # All levels of this world cleared → unlock the next world.
+                    self.level_selector.unlock_next_world(self.current_world, self.auth)
                     self.show_message("Tous les niveaux terminés!", GREEN)
                     self.level_selector.open()
                     self.state = STATE_LEVEL_SELECT
@@ -1050,7 +1054,7 @@ class Game:
         for i in range(TUTORIAL_DRONE_COUNT):
             x = 150 + i * spacing
             y = drone_y + (i % 2) * 60
-            drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
+            drone = Enemy(x, y, enemy_img, self.screen_width, self.screen_height, level=1,
                           harmless=True, can_shoot=False, behavior="patrol")
             self.tutorial_sprites.add(drone)
         
@@ -1095,7 +1099,7 @@ class Game:
         for i in range(count * 3):
             x = random.randint(100, self.screen_width - 100)
             y = random.randint(60, 200)
-            drone = Enemy(x, y, enemy_img, self.screen_width, level=1,
+            drone = Enemy(x, y, enemy_img, self.screen_width, self.screen_height, level=1,
                           harmless=True, can_shoot=False, behavior="patrol")
             drone.speed = 1.5
             self.tutorial_sprites.add(drone)
@@ -1424,7 +1428,7 @@ class Game:
                 y = start_y + row * (enemy_height + spacing_y) + enemy_height // 2
 
                 enemy_img = random.choice(self.enemy_images[self.current_world])
-                enemy = Enemy(x, y, enemy_img, self.screen_width, self.current_level)
+                enemy = Enemy(x, y, enemy_img, self.screen_width, self.screen_height, self.current_level)
                 self.enemies.add(enemy)
     
     def shoot_player_bullet(self):

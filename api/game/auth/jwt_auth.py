@@ -13,6 +13,11 @@ from typing import Optional, Dict, Any
 import os
 import uuid
 
+# In-memory fallback blacklist. Defined unconditionally so that a *runtime*
+# Redis failure (Redis was up at boot but blips later) degrades to the local
+# set instead of raising NameError on every logout/auth check.
+_BLACKLISTED_TOKENS_FALLBACK: set = set()
+
 # Redis-backed token blacklist (shared across all workers)
 try:
     import redis as _redis_lib
@@ -26,7 +31,6 @@ try:
     _USE_REDIS_BLACKLIST = True
 except Exception:
     _USE_REDIS_BLACKLIST = False
-    _BLACKLISTED_TOKENS_FALLBACK: set = set()
 
 
 class JWTAuth:

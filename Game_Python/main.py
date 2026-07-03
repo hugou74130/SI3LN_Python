@@ -21,9 +21,9 @@ def _is_wasm():
     # 3. Pygbag injects RUNNING_IN_PYGBAG via JS → accessible from Python
     try:
         from js import window  # noqa: F401  (only available under Pyodide / Pygbag)
-        if hasattr(window, 'RUNNING_IN_PYGBAG') or window.RUNNING_IN_PYGBAG:
+        if getattr(window, 'RUNNING_IN_PYGBAG', False):
             return True
-    except ImportError:
+    except Exception:
         pass
     # 4. Environment variable (set by Dockerfile or shell wrapper)
     if os.environ.get('RUNNING_IN_PYGBAG') or os.environ.get('PYGBAG'):
