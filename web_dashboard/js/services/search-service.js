@@ -122,7 +122,7 @@ class SearchService {
                 id: p.id,
                 title: p.username,
                 icon: '👤',
-                action: 'show-profile',
+                action: 'show-leaderboard',
                 description: `Player${p.total_score ? ' — ' + p.total_score + ' pts' : ''}`,
             }));
     }

@@ -151,18 +151,19 @@ class GamesManager {
     }
 
     navigateGame(direction) {
-        if (direction === 'prev') {
-            this.currentGameIndex = (this.currentGameIndex - 1 + this.games.length) % this.games.length;
-        } else {
-            this.currentGameIndex = (this.currentGameIndex + 1) % this.games.length;
+        const step = direction === 'prev' ? -1 : 1;
+        const total = this.games.length;
+
+        // Walk to the next *playable* game, skipping "Coming Soon" placeholders.
+        for (let i = 0; i < total; i++) {
+            this.currentGameIndex = (this.currentGameIndex + step + total) % total;
+            const candidate = this.games[this.currentGameIndex];
+            if (candidate && !candidate.comingSoon && candidate.isPlayable !== false) {
+                this.launchGame(candidate.id);
+                return;
+            }
         }
-        
-        const nextGame = this.games[this.currentGameIndex];
-        if (nextGame.comingSoon) {
-            alert(`${nextGame.name} - Coming Soon!`);
-            return;
-        }
-        this.launchGame(nextGame.id);
+        // No other playable game — stay where we are (nav buttons shouldn't show in this case).
     }
     
     toggleFullscreen() {

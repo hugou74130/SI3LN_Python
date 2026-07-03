@@ -61,7 +61,8 @@ class LeaderboardModule {
             this.prevBtn.addEventListener('click', () => {
                 if (this.currentPage > 1) {
                     this.currentPage--;
-                    this.loadData();
+                    this.renderTable();
+                    this.updatePagination();
                 }
             });
         }

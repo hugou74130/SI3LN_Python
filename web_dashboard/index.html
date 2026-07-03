@@ -145,7 +145,7 @@
                         <!-- Carte 2 - Leaderboard -->
                         <div class="card">
                             <h2 data-i18n="home.leaderboard">🏆 Leaderboard</h2>
-                            <div id="leaderboard" data-i18n="home.loading">Loading...</div>
+                            <div id="leaderboard">Loading...</div>
                         </div>
                         
                         <!-- Carte 3 - Player Profile -->
@@ -277,19 +277,10 @@
                                     <span class="label-icon">🌐</span>
                                     <span data-i18n="signup.preferredLanguage">Preferred Language</span>
                                 </label>
+                                <!-- Only the languages the app actually translates (see js/i18n.js) -->
                                 <select id="preferredLanguage" class="form-select">
                                     <option value="fr">🇫🇷 Français</option>
-                                    <option value="en" selected>🇬🇧 English</option>
-                                    <option value="es">🇪🇸 Español</option>
-                                    <option value="de">🇩🇪 Deutsch</option>
-                                    <option value="it">🇮🇹 Italiano</option>
-                                    <option value="pt">🇵🇹 Português</option>
-                                    <option value="nl">🇳🇱 Nederlands</option>
-                                    <option value="pl">🇵🇱 Polski</option>
-                                    <option value="ru">🇷🇺 Русский</option>
-                                    <option value="ja">🇯🇵 日本語</option>
-                                    <option value="ko">🇰🇷 한국어</option>
-                                    <option value="zh">🇨🇳 中文</option>
+                                    <option value="en">🇬🇧 English</option>
                                 </select>
                             </div>
 
@@ -601,6 +592,9 @@
 
                 <!-- Conteneur du jeu -->
                 <div class="game-fullscreen-container">
+                    <!-- allow-scripts is required by the Pygbag WASM build; allow-same-origin
+                         lets the game share the JWT via localStorage with this page.
+                         Both are intentional — removing either breaks the game. -->
                     <iframe id="gameFrame" class="game-iframe"
                             allow="cross-origin-isolated"
                             sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
@@ -671,18 +665,8 @@
                     </label>
                 </div>
 
-                <!-- Jeux favoris -->
-                <div class="edit-section">
-                    <h3>⭐ Favorite Games</h3>
-                    <div class="favorites-edit">
-                        <select id="favoriteGameSelect" multiple>
-                            <option value="si3ln">SI3LN</option>
-                            <option value="game2">Game 2</option>
-                            <option value="game3">Game 3</option>
-                        </select>
-                        <p class="hint">Hold Ctrl/Cmd to select multiple</p>
-                    </div>
-                </div>
+                <!-- Favorite Games: feature not built yet (profile shows a "coming soon"
+                     placeholder), so no editor is exposed here to avoid a dead control. -->
             </div>
 
             <div class="modal-footer">
@@ -699,7 +683,7 @@
                 <img src="assets/players/player_1/AnimateDiff_00001.001.png" alt="Avatar" id="profileAvatar">
             </div>
             <div class="profile-info">
-                <h2 id="profileUsername">Chargement...</h2>
+                <h2 id="tplProfileUsername">Chargement...</h2>
                 <div class="stats-grid">
                     <div class="stat-item">
                         <span class="stat-label">Niveau</span>

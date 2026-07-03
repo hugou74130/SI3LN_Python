@@ -328,13 +328,14 @@ class AppManager {
                 this.navigateTo('help');
                 setTimeout(() => this.helpManager.showHelpDetail(section), 100);
                 break;
-            case 'show-profile':
-                this.navigateTo('profile');
+            case 'show-leaderboard':
+                // No public per-player profile page — send to the leaderboard where players appear
+                this.navigateTo('leaderboard');
                 break;
             default:
                 if (type === 'game') this.navigateTo('games');
                 else if (type === 'help') this.navigateTo('help');
-                else if (type === 'player') this.navigateTo('profile');
+                else if (type === 'player') this.navigateTo('leaderboard');
                 break;
         }
     }

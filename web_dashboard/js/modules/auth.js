@@ -13,16 +13,8 @@ class AuthManager {
             await this.handleLogin();
         });
 
-        // Handle "Create an account" link on login page
-        const signupLink = document.getElementById('signupLink');
-        if (signupLink) {
-            signupLink.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (window.app) {
-                    window.app.navigateTo('create-account');
-                }
-            });
-        }
+        // NOTE: the "Create an account" (#signupLink) click is wired once in
+        // AppManager.initNavigationHandlers (guarded) — don't double-bind it here.
 
         // Handle "Forgot password" link
         const forgotLink = document.getElementById('forgotPasswordLink');
@@ -42,9 +34,10 @@ class AuthManager {
         const username = document.getElementById('signupPseudo')?.value;
         const email    = document.getElementById('signupEmail')?.value;
         const password = document.getElementById('signupPassword')?.value;
+        const language = document.getElementById('preferredLanguage')?.value;
 
         const submitBtn = document.getElementById('signupSubmit');
-        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creating…'; }
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = window.i18n.t('signup.creating'); }
 
         try {
             // Use facade if available (doesn't expose token)
@@ -56,6 +49,10 @@ class AuthManager {
                 const tokenKey = window.APP_CONFIG?.TOKEN_KEY || 'access_token';
                 localStorage.setItem(tokenKey, result.token);
             }
+            // Apply the preferred UI language the user picked at signup
+            if (language && window.i18n) {
+                window.i18n.setLanguage(language);
+            }
             if (window.app) {
                 window.app.navigateTo('home');
                 window.app.checkAuth();
@@ -64,7 +61,7 @@ class AuthManager {
         } catch (err) {
             if (window.AppLogger) window.AppLogger.error('Signup failed');
             alert('Registration failed. Username or email may already be taken.');
-            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create my account'; }
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = window.i18n.t('signup.createButton'); }
         }
     }
 
@@ -81,7 +78,7 @@ class AuthManager {
             const submitBtn = document.getElementById('loginSubmitBtn');
             if (submitBtn) {
                 submitBtn.disabled = true;
-                submitBtn.innerHTML = 'Logging in...';
+                submitBtn.textContent = window.i18n.t('login.loggingIn');
             }
 
             await this.login(username, password);
@@ -99,7 +96,7 @@ class AuthManager {
             const submitBtn = document.getElementById('loginSubmitBtn');
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = 'Login';
+                submitBtn.textContent = window.i18n.t('login.loginButton');
             }
         }
     }
