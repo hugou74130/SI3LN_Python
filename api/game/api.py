@@ -133,7 +133,7 @@ def _entry_to_dict(entry: LeaderboardEntry) -> dict:
         "player_id": entry.player_id,
         "player_name": entry.player_name,
         "score": entry.score,
-        "world_id": entry.world_id,
+        "world_id": entry.game_world_id,
         "level_id": entry.level_id,
         "character_used": entry.character_used,
         "duration_sec": entry.duration_sec,
@@ -377,7 +377,7 @@ def get_leaderboard_global(request, world: int = None, limit: int = 50):
 
     qs = LeaderboardEntry.objects.filter(verified=True, flagged=False)
     if world is not None:
-        qs = qs.filter(world_id=world)
+        qs = qs.filter(game_world_id=world)
 
     total = qs.count()
     entries = qs.order_by("-score", "created_at")[:limit]
@@ -538,7 +538,7 @@ def submit_leaderboard_entry(request, payload: LeaderboardSubmitSchema):
 
     # 4. Create entry
     world = None
-    if payload.world_id:
+    if payload.world_id is not None:
         world = World.objects.filter(id=payload.world_id).first()
 
     entry = LeaderboardEntry.objects.create(
@@ -546,6 +546,7 @@ def submit_leaderboard_entry(request, payload: LeaderboardSubmitSchema):
         player_name=player.username,
         score=payload.score,
         world=world,
+        game_world_id=payload.world_id,
         level_id=payload.level_id,
         character_used=payload.character_used,
         duration_sec=payload.duration_sec,

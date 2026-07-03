@@ -14,7 +14,15 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir pygbag pygame-ce requests
 
 WORKDIR /game
+
+# Cache-bust arg: pass --build-arg BUST=$(date +%s) to force fresh COPY
+ARG BUST=default
 COPY . .
+
+# Force browser mode: hide credentials in profile screen (web dashboard handles auth)
+RUN sed -i \
+    's/ProfileScreen(self\.screen, self\.auth, self\.players)/ProfileScreen(self.screen, self.auth, self.players, is_browser=True)/g' \
+    game-pygbag.py
 
 # Build game (errors are mostly warnings, so we keep going)
 RUN pygbag --build main.py || true

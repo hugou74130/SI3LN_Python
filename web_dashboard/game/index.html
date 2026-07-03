@@ -91,6 +91,51 @@
 </div>
 
 <script>
+// ── Token helper ──────────────────────────────────────────────────────────────
+function _gameAuthToken() {
+    return localStorage.getItem('SI3LN_SESSION')
+        || localStorage.getItem('access_token')
+        || localStorage.getItem('SI3LN_JWT_TOKEN');
+}
+
+// ── 0a. Score submission bridge (called by Pygbag Python via platform.window) ─
+// Receives a JSON string from the game and forwards it to the API with the JWT.
+window.SI3LN_submit_score = function(dataJson) {
+    var tk = _gameAuthToken();
+    if (!tk) return;
+    try {
+        var payload = typeof dataJson === 'string' ? JSON.parse(dataJson) : dataJson;
+        fetch('/api/game/leaderboard/submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + tk
+            },
+            body: JSON.stringify(payload)
+        }).catch(function() { /* silent – best-effort */ });
+    } catch(e) { /* ignore parse errors */ }
+};
+
+// ── 0b. Leaderboard fetch bridge (called by Pygbag Python via platform.window) ─
+// Fetches global leaderboard from the API and caches it in SI3LN_LEADERBOARD_CACHE.
+// Python reads: platform.window.SI3LN_LEADERBOARD_CACHE (JSON string).
+window.SI3LN_LEADERBOARD_CACHE = null;
+window.SI3LN_fetch_leaderboard = function(worldId, limit) {
+    var url = '/api/game/leaderboard/global?limit=' + (limit || 20);
+    if (worldId != null && worldId !== 'null') url += '&world=' + worldId;
+    var tk = _gameAuthToken();
+    var headers = {};
+    if (tk) headers['Authorization'] = 'Bearer ' + tk;
+    fetch(url, { headers: headers })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (data) window.SI3LN_LEADERBOARD_CACHE = JSON.stringify(data);
+        })
+        .catch(function() {});
+};
+// Pre-fetch on page load so data is ready when game over screen appears
+window.SI3LN_fetch_leaderboard(null, 20);
+
 // ── 0. Exit game helper (used in guest banner onclick) ───────────────────────
 function exitGame() {
     try {

@@ -11,10 +11,25 @@ import os
 import sys
 import json
 import base64
+import platform
 
 # ── Browser detection ─────────────────────────────────────────────────────────
 # Pygbag sets sys.platform = 'emscripten' when running in the browser
 IS_BROWSER = sys.platform in ("emscripten", "wasi")
+
+
+def _browser_win():
+    """Return the window that owns our JS bridges.
+
+    Pygbag runs inside an iframe on /game/index.html.
+    platform.window = the iframe's window; the bridges (SI3LN_*) are
+    defined on the *parent* window — accessible via window.parent because
+    the iframe uses sandbox="allow-same-origin".
+    Falls back to platform.window when not in an iframe (window.parent === window).
+    """
+    win = platform.window
+    parent = getattr(win, "parent", win)
+    return parent if parent is not None else win
 
 # ── requests import (desktop only) ───────────────────────────────────────────
 if not IS_BROWSER:
@@ -66,8 +81,7 @@ class APIClient:
 
         if not token and IS_BROWSER:
             try:
-                import platform
-                token = getattr(platform.window, "SI3LN_JWT_TOKEN", "") or ""
+                token = getattr(_browser_win(), "SI3LN_JWT_TOKEN", "") or ""
             except Exception:
                 token = ""
 
@@ -206,10 +220,39 @@ class APIClient:
         # Link to the current session if one was started
         if self._session_id is not None:
             payload["session_id"] = self._session_id
+        # In browser mode (Pygbag), HTTP requests are unavailable.
+        # Delegate submission to the parent HTML page via platform.window.
+        if IS_BROWSER:
+            try:
+                fn = getattr(_browser_win(), "SI3LN_submit_score", None)
+                if fn:
+                    fn(json.dumps(payload))
+            except Exception:
+                pass
+            return None
+
         return self._post("/api/game/leaderboard/submit", payload)
 
     def get_leaderboard_global(self, world: int | None = None, limit: int = 50) -> list:
         """Return top global scores from persistent leaderboard."""
+        if IS_BROWSER:
+            try:
+                win = _browser_win()
+                cache = getattr(win, "SI3LN_LEADERBOARD_CACHE", None)
+                if cache:
+                    data = json.loads(str(cache))
+                    entries = data if isinstance(data, list) else data.get("entries", [])
+                    if world is not None:
+                        entries = [e for e in entries if e.get("world_id") == world]
+                    return entries[:limit]
+                # Cache miss — trigger a fetch for next call
+                fn = getattr(win, "SI3LN_fetch_leaderboard", None)
+                if fn:
+                    fn(world, limit)
+            except Exception:
+                pass
+            return []
+
         params = f"limit={limit}"
         if world is not None:
             params += f"&world={world}"

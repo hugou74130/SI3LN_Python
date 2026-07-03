@@ -6,13 +6,15 @@ Shows locked/unlocked character status
 import pygame
 from constants import *
 from ui_components import Button, InputField, Panel, ImageButton
+from api_client import IS_BROWSER as _IS_BROWSER
 
 
 class ProfileScreen:
-    def __init__(self, screen, auth_system, players):
+    def __init__(self, screen, auth_system, players, is_browser=False):
         self.screen = screen
         self.auth = auth_system
         self.players = players
+        self._is_browser = is_browser or _IS_BROWSER
         self.active = False
         
         # Get screen dimensions
@@ -335,8 +337,15 @@ class ProfileScreen:
             )
             self.screen.blit(hint_text, hint_rect)
         
-        # Draw input fields (only if not guest)
-        if not self.auth.guest_mode:
+        # Draw input fields (only on desktop and not in guest mode)
+        if self._is_browser:
+            browser_msg = self.font_small.render(
+                "Gestion du compte : utilisez le tableau de bord web",
+                True, HOLO_BLUE
+            )
+            self.screen.blit(browser_msg, (self.panel.rect.x + 50,
+                                           self.panel.rect.y + 400))
+        elif not self.auth.guest_mode:
             self.username_input.draw(self.screen)
             self.old_password_input.draw(self.screen)
             self.new_password_input.draw(self.screen)
@@ -346,7 +355,7 @@ class ProfileScreen:
                 "Mode invité - Créez un compte pour sauvegarder vos modifications",
                 True, ORANGE
             )
-            self.screen.blit(guest_msg, (self.panel.rect.x + 50, 
+            self.screen.blit(guest_msg, (self.panel.rect.x + 50,
                                          self.panel.rect.y + 400))
         
         # Draw buttons

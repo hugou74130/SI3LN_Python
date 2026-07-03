@@ -62,7 +62,7 @@ WORLDS = {
         "name": "Boot Camp",
         "subtitle": "Orbital Training Station",
         "background": "background_bootcamp.jpg",
-        "levels": 1,
+        "levels": 5,
         "enemies_dir": "BootCamp_world",
         "enemy_count": 10,
         "is_tutorial": True,

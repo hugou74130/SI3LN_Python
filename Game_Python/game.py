@@ -121,7 +121,7 @@ class Game:
         self.load_assets()
         
         # Initialize screens
-        self.profile_screen = ProfileScreen(self.screen, self.auth, self.players)
+        self.profile_screen = ProfileScreen(self.screen, self.auth, self.players, is_browser=self._wasm)
         self.level_selector = LevelSelector(self.screen, WORLDS)
 
         # Create UI
@@ -493,7 +493,7 @@ class Game:
                         self.current_level = result[2]
                         print(f"[DEBUG] Starting world={self.current_world}, level={self.current_level}")
                         self.level_selector.close()
-                        if self.current_world == "BootCamp" and WORLDS[self.current_world].get("is_tutorial"):
+                        if self.current_world == "BootCamp" and WORLDS[self.current_world].get("is_tutorial") and self.current_level == 1:
                             self.start_tutorial()
                         else:
                             self.start_level()
@@ -2106,10 +2106,9 @@ class Game:
         pygame.draw.line(self.screen, (50, 50, 70), (0, 75), (self.screen_width, 75), 2)
 
         # ── Left side: Score & Level ───────────────────────────────────────
-        score_key = f"score_{self.current_score}"
-        if score_key not in self._text_cache:
-            self._text_cache[score_key] = self.font_small.render(f"Score: {self.current_score:,}", True, WHITE)
-        self.screen.blit(self._text_cache[score_key], (20, 10))
+        # Render score directly (changes every kill — don't cache to avoid unbounded growth)
+        score_surf = self.font_small.render(f"Score: {self.current_score:,}", True, WHITE)
+        self.screen.blit(score_surf, (20, 10))
 
         level_key = f"level_{self.current_level}"
         if level_key not in self._text_cache:
@@ -2172,24 +2171,20 @@ class Game:
             shield_ratio = 0.0
         fill_w = int(bar_w * shield_ratio)
         if fill_w > 0:
-            if shield_active:
-                # Animated cyan-blue gradient when active
-                pulse = (pygame.time.get_ticks() % 1000) / 1000.0
-                shield_color = (80 + int(40 * pulse), 180, 255)
-                shield_color_end = (40, 120, 220)
-            else:
-                shield_color = (60, 60, 90)
-                shield_color_end = (40, 40, 60)
+            # Fixed gradient colors — no per-frame variation (avoids unbounded cache growth)
+            shield_color = (80, 180, 255) if shield_active else (60, 60, 90)
+            shield_color_end = (40, 120, 220) if shield_active else (40, 40, 60)
             self._draw_gradient_bar(bar_x, shield_y, fill_w, bar_h, shield_color, shield_color_end, 4)
         # Border
         border_c = (80, 200, 255) if shield_active else (100, 100, 120)
         pygame.draw.rect(self.screen, border_c, (bar_x, shield_y, bar_w, bar_h), 1, border_radius=4)
-        # Shield value
+        # Shield value — centered inside bar
         if self.player and shield_ratio > 0:
             shield_key = f"shield_{int(shield_ratio * 100)}"
             if shield_key not in self._text_cache:
-                self._text_cache[shield_key] = self.font_tiny.render(f"{int(shield_ratio * 100)}%", True, (200, 230, 255))
-            self.screen.blit(self._text_cache[shield_key], (bar_x + bar_w + 6, shield_y + 1))
+                self._text_cache[shield_key] = self.font_tiny.render(f"{int(shield_ratio * 100)}%", True, (220, 240, 255))
+            sv = self._text_cache[shield_key]
+            self.screen.blit(sv, (bar_x + (bar_w - sv.get_width()) // 2, shield_y + 1))
 
         # ── 3) Special attack charge bar (bottom) ──────────────────────────
         special_y = shield_y + bar_h + gap
@@ -2203,33 +2198,29 @@ class Game:
         charge = min(1.0, max(0.0, self.special_charge))
         fill_w = int(bar_w * charge)
         if fill_w > 0:
-            if special_ready:
-                # Pulsing gold-yellow gradient
-                pulse = (pygame.time.get_ticks() % 500) / 500.0
-                special_color = (255, 220, 0)
-                special_color_end = (255, 140 + int(60 * pulse), 0)
-            else:
-                # Purple gradient charging
-                special_color = (180, 100, 220)
-                special_color_end = (100, 50, 150)
+            # Fixed gradient colors — no per-frame variation (avoids unbounded cache growth)
+            special_color = (255, 220, 0) if special_ready else (180, 100, 220)
+            special_color_end = (255, 140, 0) if special_ready else (100, 50, 150)
             self._draw_gradient_bar(bar_x, special_y, fill_w, bar_h, special_color, special_color_end, 4)
         # Border
         border_color = (255, 220, 0) if special_ready else (150, 100, 180)
         pygame.draw.rect(self.screen, border_color, (bar_x, special_y, bar_w, bar_h), 1, border_radius=4)
-        # Charge percentage or READY text
+        # Charge percentage or READY text — centered inside bar
         if special_ready:
             ready_blink = (pygame.time.get_ticks() % 600) < 300
             if ready_blink:
                 ready_key = "special_ready"
                 if ready_key not in self._text_cache:
                     self._text_cache[ready_key] = self.font_tiny.render("READY!", True, (255, 255, 0))
-                self.screen.blit(self._text_cache[ready_key], (bar_x + bar_w + 6, special_y + 1))
+                rv = self._text_cache[ready_key]
+                self.screen.blit(rv, (bar_x + (bar_w - rv.get_width()) // 2, special_y + 1))
         else:
             charge_pct = int(charge * 100)
             charge_key = f"special_{charge_pct}"
             if charge_key not in self._text_cache:
                 self._text_cache[charge_key] = self.font_tiny.render(f"{charge_pct}%", True, (200, 180, 220))
-            self.screen.blit(self._text_cache[charge_key], (bar_x + bar_w + 6, special_y + 1))
+            cv = self._text_cache[charge_key]
+            self.screen.blit(cv, (bar_x + (bar_w - cv.get_width()) // 2, special_y + 1))
 
         # ── Active bonus indicators ───────────────────────────────────────
         bonus_x = 20
@@ -2340,11 +2331,13 @@ class Game:
         self.screen.blit(self._gradient_cache[cache_key], (x, y))
 
     def _draw_heart_icon(self, x, y, size, color):
-        """Draw a simple heart icon."""
-        # Simple filled circle as heart approximation
-        pygame.draw.circle(self.screen, color, (x + size // 2, y + size // 2), size // 2)
-        pygame.draw.circle(self.screen, (min(255, color[0] + 40), min(255, color[1] + 40), min(255, color[2] + 40)), 
-                          (x + size // 2, y + size // 2), size // 2 - 2)
+        """Draw a heart icon: two circles on top + downward triangle."""
+        r = max(1, size // 4)
+        cy_top = y + r
+        pygame.draw.circle(self.screen, color, (x + r, cy_top), r)
+        pygame.draw.circle(self.screen, color, (x + size - r, cy_top), r)
+        points = [(x, cy_top), (x + size, cy_top), (x + size // 2, y + size - 1)]
+        pygame.draw.polygon(self.screen, color, points)
 
     def _draw_shield_icon(self, x, y, size, color):
         """Draw a shield icon."""

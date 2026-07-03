@@ -471,11 +471,14 @@ class AppManager {
         if (window.leaderboardModule) {
             window.leaderboardModule.currentPage = 1;
             window.leaderboardModule.worldFilter = '';
+            window.leaderboardModule.levelFilter = '';
             window.leaderboardModule.limit = 50;
             // Reset selects
             const ws = document.getElementById('leaderboard-world-filter');
+            const lv = document.getElementById('leaderboard-level-filter');
             const ls = document.getElementById('leaderboard-limit-filter');
             if (ws) ws.value = '';
+            if (lv) lv.value = '';
             if (ls) ls.value = '50';
             window.leaderboardModule.loadData();
         }

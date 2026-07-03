@@ -7,6 +7,7 @@ class LeaderboardModule {
         this.currentPage = 1;
         this.limit = 50;
         this.worldFilter = '';
+        this.levelFilter = '';
         this.data = [];
         this.loading = false;
         this.init();
@@ -17,6 +18,7 @@ class LeaderboardModule {
         this.tableEl = document.getElementById('leaderboard-table');
         this.paginationEl = document.getElementById('leaderboard-pagination');
         this.worldSelect = document.getElementById('leaderboard-world-filter');
+        this.levelSelect = document.getElementById('leaderboard-level-filter');
         this.limitSelect = document.getElementById('leaderboard-limit-filter');
         this.refreshBtn = document.getElementById('leaderboard-refresh');
         this.prevBtn = document.getElementById('lb-prev');
@@ -27,6 +29,14 @@ class LeaderboardModule {
         if (this.worldSelect) {
             this.worldSelect.addEventListener('change', () => {
                 this.worldFilter = this.worldSelect.value;
+                this.currentPage = 1;
+                this.loadData();
+            });
+        }
+
+        if (this.levelSelect) {
+            this.levelSelect.addEventListener('change', () => {
+                this.levelFilter = this.levelSelect.value;
                 this.currentPage = 1;
                 this.loadData();
             });
@@ -75,25 +85,55 @@ class LeaderboardModule {
 
         try {
             const api = window.facade || window.api;
-            if (!api || !api.getLeaderboard) {
+            if (!api) {
                 throw new Error('API not available');
             }
 
-            // Use the global endpoint with world filter
             const worldId = this.worldFilter !== '' ? parseInt(this.worldFilter, 10) : null;
-            const result = await api.getLeaderboardGlobal(worldId, this.limit * 5);
 
-            // Handle response format
+            // Try new persistent leaderboard first
             let entries = [];
-            if (Array.isArray(result)) {
-                entries = result;
-            } else if (result && Array.isArray(result.entries)) {
-                entries = result.entries;
+            try {
+                const result = await api.getLeaderboardGlobal(worldId, this.limit * 5);
+                if (Array.isArray(result)) {
+                    entries = result;
+                } else if (result && Array.isArray(result.entries)) {
+                    entries = result.entries;
+                }
+            } catch (_) { /* fall through to legacy */ }
+
+            // Fall back to legacy endpoint (GameSession-based) when no v2 entries
+            if (entries.length === 0) {
+                try {
+                    const raw = window.api;
+                    const legacy = await raw.request(`/game/leaderboard?limit=${this.limit * 5}`);
+                    const arr = Array.isArray(legacy) ? legacy : [];
+                    entries = arr.map((e, i) => ({
+                        player_username: e.player_username || e.player_name || 'Unknown',
+                        player_name: e.player_username || e.player_name || 'Unknown',
+                        score: e.score || 0,
+                        level_reached: e.level_reached || 1,
+                        level_id: e.level_reached || 1,
+                        world_id: e.world_id || null,
+                        character_used: e.character_used || '',
+                        duration_sec: e.duration_sec || 0,
+                        accuracy_pct: e.accuracy_pct || null,
+                        enemies_killed: e.enemies_killed || 0,
+                        created_at: e.created_at || null,
+                        rank: i + 1,
+                    }));
+                } catch (_) { /* ignore */ }
             }
 
             // Filter by world if needed
             if (worldId !== null) {
                 entries = entries.filter(e => e.world_id === worldId);
+            }
+
+            // Filter by level if needed
+            const levelId = this.levelFilter !== '' ? parseInt(this.levelFilter, 10) : null;
+            if (levelId !== null) {
+                entries = entries.filter(e => (e.level_id || e.level_reached) === levelId);
             }
 
             this.data = entries;

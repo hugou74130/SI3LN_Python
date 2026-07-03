@@ -230,7 +230,7 @@ class LeaderboardRankSchema(Schema):
 class LeaderboardSubmitSchema(Schema):
     """Request body for submitting a new run"""
     score: int = Field(..., ge=0, description="Final score for the run")
-    world_id: int = Field(..., ge=1, description="World ID played")
+    world_id: int = Field(..., ge=0, description="World ID played (0=BootCamp, 1=Space, …)")
     level_id: int = Field(..., ge=1, description="Level reached")
     character_used: str = Field(default="", max_length=32)
     duration_sec: int = Field(default=0, ge=0)

@@ -1,0 +1,8 @@
+# Exclude large build artifacts from Docker build context
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+data/
+.git/

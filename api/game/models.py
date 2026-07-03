@@ -98,6 +98,8 @@ class LeaderboardEntry(models.Model):
     player_name = models.CharField(max_length=32, db_index=True, help_text="Denormalized for speed")
     score = models.IntegerField(default=0, db_index=True)
     world = models.ForeignKey(World, on_delete=models.SET_NULL, null=True, blank=True)
+    game_world_id = models.IntegerField(null=True, blank=True, db_index=True,
+                                        help_text="Game-side world ID (0=BootCamp, 1=Space, …)")
     level_id = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     character_used = models.CharField(max_length=32, default='')
     duration_sec = models.IntegerField(default=0)
@@ -117,6 +119,7 @@ class LeaderboardEntry(models.Model):
         indexes = [
             models.Index(fields=['player', '-score']),
             models.Index(fields=['world', '-score']),
+            models.Index(fields=['game_world_id', '-score']),
             models.Index(fields=['created_at']),
         ]
 
