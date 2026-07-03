@@ -4,8 +4,28 @@ Manages user registration, login, and user data
 """
 import json
 import os
+import sys
 from utils import hash_password, validate_email
 from constants import USER_DATA_FILE
+
+# In the browser (Pygbag/WASM) the filesystem is an in-memory MEMFS that is
+# wiped on every page reload, so writing users.json there loses all progress
+# when the player leaves and comes back. Persist to window.localStorage instead,
+# which survives reloads and is scoped per origin.
+IS_BROWSER = sys.platform in ("emscripten", "wasi")
+_LS_KEY = "SI3LN_GAME_USERS"
+
+
+def _browser_localstorage():
+    """Return the browser localStorage object, or None if unavailable."""
+    if not IS_BROWSER:
+        return None
+    try:
+        import platform
+        win = platform.window
+        return getattr(win, "localStorage", None)
+    except Exception:
+        return None
 
 
 class AuthSystem:
@@ -13,9 +33,18 @@ class AuthSystem:
         self.users = self.load_users()
         self.current_user = None
         self.guest_mode = False
-    
+
     def load_users(self):
-        """Load users from JSON file"""
+        """Load users from localStorage (browser) or JSON file (desktop)."""
+        ls = _browser_localstorage()
+        if ls is not None:
+            try:
+                raw = ls.getItem(_LS_KEY)
+                return json.loads(str(raw)) if raw else {}
+            except Exception as e:
+                print(f"Error loading users from localStorage: {e}")
+                return {}
+
         if os.path.exists(USER_DATA_FILE):
             try:
                 with open(USER_DATA_FILE, 'r', encoding='utf-8') as f:
@@ -24,9 +53,17 @@ class AuthSystem:
                 print(f"Error loading users: {e}")
                 return {}
         return {}
-    
+
     def save_users(self):
-        """Save users to JSON file"""
+        """Persist users to localStorage (browser) or JSON file (desktop)."""
+        ls = _browser_localstorage()
+        if ls is not None:
+            try:
+                ls.setItem(_LS_KEY, json.dumps(self.users, ensure_ascii=False))
+            except Exception as e:
+                print(f"Error saving users to localStorage: {e}")
+            return
+
         try:
             with open(USER_DATA_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.users, f, indent=4, ensure_ascii=False)

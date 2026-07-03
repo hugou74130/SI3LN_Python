@@ -228,7 +228,7 @@ class Game:
         # Load dash sound placeholder (Phantom Striker ability)
         self.dash_sound = None
         try:
-            self.dash_sound = pygame.mixer.Sound("assets/sounds/dash_placeholder.wav")
+            self.dash_sound = pygame.mixer.Sound("assets/sounds/dash_placeholder.ogg")
         except Exception:
             pass  # Sound placeholder not required to exist
         # Bullets - will be created dynamically per world
