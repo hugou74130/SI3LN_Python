@@ -361,7 +361,7 @@ Couvrir un projet full-stack (jeu + API + dashboard) avec des tests automatisés
 -  **Sécurité** : JWT, SHA-256, rate limiting, XSS prevention
 -  **18 suites de tests** automatisés
 -  **Docker Compose** : 5 services, un seul `up --build`
--  **67 commits**, travail en binôme avec double code review
+-  **82 commits**, travail en binôme avec double code review
 -  **Déployable** en local et en navigateur (WASM)
 
 ---
