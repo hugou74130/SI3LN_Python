@@ -164,9 +164,9 @@ docker compose up --build
 | **Phase 6 — Features avancées** | Juin 2026 | Bootcamp/tutorial, shield, attaque spéciale, keybindings, audio SFX, HUD amélioré |
 
 ### Statistiques
-- **67 commits** sur le repo
-- **~220 000 lignes de code** (tous fichiers confondus)
-- **646 fichiers Python** (modules, API, tests, scripts)
+- **82 commits** sur le repo
+- **~22 000 lignes de code** (tous fichiers confondus)
+- **67 fichiers Python** (modules, API, tests, scripts)
 - **18 suites de tests automatisés**
 
 ---
