@@ -28,6 +28,8 @@ class LevelSelector:
         self.world_unlocked = {world: False for world in self.worlds}
         if "BootCamp" in self.world_unlocked:
             self.world_unlocked["BootCamp"] = True
+        # Highest level *completed* per world (0 = none). Levels 1..max+1 are playable.
+        self.world_max_level = {world: 0 for world in self.worlds}
         # Set by game.py so open() can restore/persist progress across sessions.
         self.auth = None
         
@@ -129,12 +131,15 @@ class LevelSelector:
             x = start_x + button_width // 2
             y = start_y + i * (button_height + spacing) + button_height // 2
             
-            level_text = f"Niveau {i + 1}"
-            
+            locked = not self.is_level_unlocked(self.selected_world, i + 1)
+            level_text = f"Niveau {i + 1}" + ("  🔒" if locked else "")
+            color = (110, 110, 110) if locked else WHITE
+
             btn = Button(x, y, button_width, button_height,
                         level_text,
                         self.font_medium,
-                        bg_color=None, text_color=WHITE, border_color=WHITE)
+                        bg_color=None, text_color=color, border_color=color)
+            btn.locked = locked
             self.level_buttons.append(btn)
         
         # Start button - always at bottom of screen
@@ -151,6 +156,15 @@ class LevelSelector:
         # Restore unlock progress from the saved profile every time we open,
         # so it survives across sessions (was previously lost on every launch).
         self._restore_from_auth()
+        # In browser (and desktop when logged in) progress lives server-side.
+        api = getattr(self, "api", None)
+        if api is not None:
+            try:
+                prog = api.get_progress()
+                if prog:
+                    self.restore_from_server(prog)
+            except Exception as e:
+                print(f"[progress] restore failed: {e}")
         # Update selected state for cards
         for card in self.world_cards:
             card.selected = (card.world_name == self.selected_world)
@@ -170,6 +184,66 @@ class LevelSelector:
             self.boot_camp_completed = True
             self._unlock_next("BootCamp", persist=False)
 
+    def restore_from_server(self, progress):
+        """Apply server progression: unlocked worlds + max level per world.
+
+        `progress` = {"unlocked_worlds": [names], "world_levels": {world_id: max_level}}.
+        world_levels keys are world IDs (str); map them back to world names via WORLD_IDS.
+        """
+        if not progress:
+            return
+        from constants import WORLD_IDS
+        id_to_name = {str(v): k for k, v in WORLD_IDS.items()}
+        for world_name in progress.get("unlocked_worlds", []):
+            if world_name in self.world_unlocked:
+                self.world_unlocked[world_name] = True
+        for wid, lvl in (progress.get("world_levels") or {}).items():
+            name = id_to_name.get(str(wid))
+            if name in self.world_max_level:
+                try:
+                    self.world_max_level[name] = max(self.world_max_level[name], int(lvl))
+                except (TypeError, ValueError):
+                    pass
+        # A world with any completed level must at least be unlocked.
+        for name, lvl in self.world_max_level.items():
+            if lvl > 0:
+                self.world_unlocked[name] = True
+
+    def is_level_unlocked(self, world_name, level_number):
+        """A level is playable if its world is unlocked and it is <= max completed + 1."""
+        if not self.world_unlocked.get(world_name, False):
+            return False
+        return level_number <= self.world_max_level.get(world_name, 0) + 1
+
+    def record_level_win(self, world_name, level_number):
+        """Mark a level as completed locally (raise the per-world max) and persist."""
+        if world_name in self.world_max_level:
+            self.world_max_level[world_name] = max(
+                self.world_max_level[world_name], int(level_number))
+        self._persist_server()
+
+    def _persist_server(self):
+        """Push current unlock/level state to the server (best-effort, browser + desktop).
+
+        Central choke point: every unlock path (level win, world unlock, tutorial
+        completion) funnels through here, so progression always persists regardless
+        of which caller triggered the change.
+        """
+        api = getattr(self, "api", None)
+        if api is None or not api.is_authenticated():
+            return
+        try:
+            from constants import WORLD_IDS
+            unlocked = [w for w, ok in self.world_unlocked.items() if ok]
+            levels = {
+                str(WORLD_IDS[w]): lvl
+                for w, lvl in self.world_max_level.items()
+                if w in WORLD_IDS and lvl > 0
+            }
+            api.submit_progress(unlocked, levels)
+        except Exception as e:
+            print(f"[progress] selector persist failed: {e}")
+
     def _unlock_next(self, completed_world, persist=True):
         """Unlock the world that follows *completed_world* in world_order."""
         if completed_world in self.world_order:
@@ -183,6 +257,9 @@ class LevelSelector:
                 unlocked_worlds=unlocked_now,
                 boot_camp_completed=self.boot_camp_completed,
             )
+        # Persist to server too (browser has no local auth; this is the durable path).
+        if persist:
+            self._persist_server()
 
     def unlock_next_world(self, completed_world, auth=None):
         """Called when a world's levels are all cleared — unlocks the next world."""
@@ -243,6 +320,9 @@ class LevelSelector:
                 # Level selection
                 for i, btn in enumerate(self.level_buttons):
                     if btn.is_clicked(pos):
+                        if getattr(btn, "locked", False):
+                            print(f"[DEBUG] Level {i + 1} locked — ignored")
+                            continue
                         self.selected_level = i + 1
                         print(f"[DEBUG] Level {self.selected_level} selected")
                 
@@ -251,8 +331,11 @@ class LevelSelector:
                 print(f"[DEBUG] Start button rect: {self.start_button.rect}")
                 print(f"[DEBUG] Start button enabled: {self.start_button.enabled}")
                 if self.start_button.is_clicked(pos):
-                    print(f"[DEBUG] Start button clicked! World={self.selected_world}, Level={self.selected_level}")
-                    return ("START_LEVEL", self.selected_world, self.selected_level)
+                    if not self.is_level_unlocked(self.selected_world, self.selected_level):
+                        print(f"[DEBUG] Start blocked — level {self.selected_level} locked")
+                    else:
+                        print(f"[DEBUG] Start button clicked! World={self.selected_world}, Level={self.selected_level}")
+                        return ("START_LEVEL", self.selected_world, self.selected_level)
                 else:
                     print(f"[DEBUG] Start button NOT clicked")
                 

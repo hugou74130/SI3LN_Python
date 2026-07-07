@@ -125,6 +125,8 @@ class Game:
         self.level_selector = LevelSelector(self.screen, WORLDS)
         # Give the selector the auth handle so it can restore/persist world-unlock progress.
         self.level_selector.auth = self.auth
+        # Give it the API client so it can restore server-side progression (browser + logged-in desktop).
+        self.level_selector.api = self.api
 
         # Create UI
         self.create_ui()
@@ -722,6 +724,7 @@ class Game:
                 if self.current_level > max_levels:
                     self._end_api_session()
                     # All levels of this world cleared → unlock the next world.
+                    # unlock_next_world persists progression to the server internally.
                     self.level_selector.unlock_next_world(self.current_world, self.auth)
                     self.show_message("Tous les niveaux terminés!", GREEN)
                     self.level_selector.open()
@@ -838,11 +841,16 @@ class Game:
                 high_score=max(self.current_score,
                                self.auth.get_user_data("high_score") or 0)
             )
-            # Submit to persistent leaderboard (best-effort)
+        # Submit to persistent leaderboard (best-effort).
+        # Gate on API auth, NOT the local `current_user`: in browser mode the
+        # game has no local login (auth lives in the web dashboard / JWT), so
+        # `username` is always "Guest" even for a logged-in player. Skipping on
+        # "Guest" meant browser players never reached the leaderboard.
+        if self.api.is_authenticated():
             try:
                 self._submit_leaderboard()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[leaderboard] game-over submit failed: {e}")
         self.state = STATE_GAME_OVER
 
     def start_level(self):
@@ -1729,11 +1737,21 @@ class Game:
             # Submit the run to the persistent leaderboard on level win too —
             # previously only death (trigger_game_over) submitted, so a player who
             # cleared levels never appeared on the leaderboard. Best-effort.
+            if self.api.is_authenticated():
+                try:
+                    self._submit_leaderboard()
+                except Exception as e:
+                    print(f"[leaderboard] level-win submit failed: {e}")
+            # Persist level progression (unlocked worlds + level completed) — best-effort.
             try:
-                self._submit_leaderboard()
-            except Exception:
-                pass
-    
+                self._save_progress()
+            except Exception as e:
+                print(f"[progress] level-win save failed: {e}")
+
+    def _save_progress(self):
+        """Record the just-won level; the selector persists to the server internally."""
+        self.level_selector.record_level_win(self.current_world, self.current_level)
+
     def update_debuffs(self):
         """Gère la durée des debuffs"""
         current_time = pygame.time.get_ticks()

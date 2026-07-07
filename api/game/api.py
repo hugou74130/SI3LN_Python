@@ -30,6 +30,8 @@ from .schemas import (
     BootCampStatusSchema,
     BootCampCompleteSchema,
     TutorialProgressSchema,
+    ProgressSchema,
+    ProgressUpdateSchema,
 )
 from .auth.auth_decorators import jwt_auth
 
@@ -1025,3 +1027,39 @@ def update_tutorial_progress(request, objectives_completed: int):
         "current_objective": None,
         "completed": session.completed,
     }
+
+
+def _progress_payload(player):
+    """Return a player's progression with a safe default (BootCamp unlocked)."""
+    prog = player.progression or {}
+    worlds = prog.get("unlocked_worlds") or ["BootCamp"]
+    levels = prog.get("world_levels") or {}
+    return {"unlocked_worlds": worlds, "world_levels": levels}
+
+
+@router.get("/progress", response=ProgressSchema, tags=["Progression"], auth=jwt_auth)
+def get_progress(request):
+    """Return the current player's level progression."""
+    player = get_object_or_404(Player, user=request.auth)
+    return _progress_payload(player)
+
+
+@router.patch("/progress", response=ProgressSchema, tags=["Progression"], auth=jwt_auth)
+def update_progress(request, payload: ProgressUpdateSchema):
+    """Merge new progression into the player's saved progression (monotonic)."""
+    player = get_object_or_404(Player, user=request.auth)
+    player.merge_progression(
+        unlocked_worlds=payload.unlocked_worlds,
+        world_levels=payload.world_levels,
+    )
+    # Keep legacy fields in sync for the rest of the app.
+    if "BootCamp" in player.progression.get("unlocked_worlds", []) and \
+            len(player.progression["unlocked_worlds"]) > 1:
+        player.boot_camp_completed = True
+    max_lvl = max((int(v) for v in player.progression.get("world_levels", {}).values()),
+                  default=0)
+    if max_lvl > player.highest_level:
+        player.highest_level = max_lvl
+    player.save(update_fields=["progression", "boot_camp_completed", "highest_level",
+                               "updated_at"])
+    return _progress_payload(player)

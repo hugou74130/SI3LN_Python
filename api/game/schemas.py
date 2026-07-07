@@ -1,8 +1,20 @@
 from ninja import Schema
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, List
 from pydantic import Field, field_validator
 import re
+
+
+class ProgressSchema(Schema):
+    """Player level progression."""
+    unlocked_worlds: List[str] = Field(default_factory=list)
+    world_levels: Dict[str, int] = Field(default_factory=dict)
+
+
+class ProgressUpdateSchema(Schema):
+    """Request body to update progression (merged monotonically server-side)."""
+    unlocked_worlds: List[str] = Field(default_factory=list)
+    world_levels: Dict[str, int] = Field(default_factory=dict)
 
 
 class PlayerSchema(Schema):

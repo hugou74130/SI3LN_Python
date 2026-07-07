@@ -88,12 +88,33 @@ class APIClient:
         if token:
             self.set_token(token)
 
+    def _refresh_browser_token(self):
+        """Re-read the JWT from window.SI3LN_JWT_TOKEN (browser only).
+
+        The token is injected by the parent HTML page *after* the game boots,
+        and can also be refreshed mid-session (re-login). Reading it only once
+        in __init__ meant the game stayed unauthenticated forever if the token
+        arrived late. Call this before any auth-gated request.
+        """
+        if not IS_BROWSER:
+            return
+        try:
+            token = getattr(_browser_win(), "SI3LN_JWT_TOKEN", "") or ""
+        except Exception:
+            token = ""
+        # Only update when the window token is present and differs from ours.
+        if token and token != self._token:
+            self.set_token(token)
+
     def set_token(self, token: str):
         self._token  = token
         self._player_id = _jwt_field(token, "player_id")
         self._username  = _jwt_field(token, "username") or ""
 
     def is_authenticated(self) -> bool:
+        # In browser mode the JWT may land after construction — re-read it.
+        if not (self._token and self._player_id):
+            self._refresh_browser_token()
         return bool(self._token and self._player_id)
 
     def get_username(self) -> str:
@@ -227,11 +248,53 @@ class APIClient:
                 fn = getattr(_browser_win(), "SI3LN_submit_score", None)
                 if fn:
                     fn(json.dumps(payload))
-            except Exception:
-                pass
+                    print(f"[leaderboard] submitted via JS bridge (score={score})")
+                else:
+                    print("[leaderboard] SI3LN_submit_score bridge missing — score NOT sent")
+            except Exception as e:
+                print(f"[leaderboard] browser submit failed: {e}")
             return None
 
         return self._post("/api/game/leaderboard/submit", payload)
+
+    # ── Progression ─────────────────────────────────────────────────────────
+    def get_progress(self) -> dict | None:
+        """Return saved level progression, or None if unavailable/unauthenticated.
+
+        Shape: {"unlocked_worlds": [...], "world_levels": {world_id: max_level}}.
+        """
+        if not self.is_authenticated():
+            return None
+        if IS_BROWSER:
+            try:
+                cache = getattr(_browser_win(), "SI3LN_PROGRESS_CACHE", None)
+                if cache:
+                    return json.loads(str(cache))
+            except Exception as e:
+                print(f"[progress] browser read failed: {e}")
+            return None
+        return self._get("/api/game/progress")
+
+    def submit_progress(self, unlocked_worlds: list, world_levels: dict) -> dict | None:
+        """Persist level progression (merged monotonically server-side). Best-effort."""
+        if not self.is_authenticated():
+            return None
+        payload = {
+            "unlocked_worlds": list(unlocked_worlds or []),
+            "world_levels": {str(k): int(v) for k, v in (world_levels or {}).items()},
+        }
+        if IS_BROWSER:
+            try:
+                fn = getattr(_browser_win(), "SI3LN_save_progress", None)
+                if fn:
+                    fn(json.dumps(payload))
+                    print(f"[progress] saved via JS bridge {payload}")
+                else:
+                    print("[progress] SI3LN_save_progress bridge missing — NOT saved")
+            except Exception as e:
+                print(f"[progress] browser save failed: {e}")
+            return None
+        return self._patch("/api/game/progress", payload)
 
     def get_leaderboard_global(self, world: int | None = None, limit: int = 50) -> list:
         """Return top global scores from persistent leaderboard."""

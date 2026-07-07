@@ -19,6 +19,9 @@ class Player(models.Model):
     boot_camp_completed = models.BooleanField(default=False)  # Boot Camp tutorial completion
     # Character unlock tracking
     unlocked_characters = models.JSONField(default=list, blank=True)  # List of unlocked character indices
+    # Level progression: {"unlocked_worlds": ["BootCamp", ...], "world_levels": {"0": 5, ...}}
+    # world_levels keys are world_id (str), values are the highest level *completed*.
+    progression = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -39,6 +42,32 @@ class Player(models.Model):
     def has_character_unlocked(self, character_idx):
         """Check if a character is unlocked"""
         return character_idx in self.unlocked_characters
+
+    def merge_progression(self, unlocked_worlds=None, world_levels=None):
+        """Monotonically merge progression: add unlocked worlds, only raise level maxima.
+
+        Returns the merged progression dict. Never lowers an existing max level or
+        removes an unlocked world, so out-of-order / replayed updates are safe.
+        """
+        prog = dict(self.progression or {})
+        worlds = list(prog.get("unlocked_worlds", []))
+        levels = dict(prog.get("world_levels", {}))
+
+        for w in (unlocked_worlds or []):
+            if w not in worlds:
+                worlds.append(w)
+        for wid, lvl in (world_levels or {}).items():
+            key = str(wid)
+            try:
+                lvl = int(lvl)
+            except (TypeError, ValueError):
+                continue
+            levels[key] = max(int(levels.get(key, 0)), lvl)
+
+        prog["unlocked_worlds"] = worlds
+        prog["world_levels"] = levels
+        self.progression = prog
+        return prog
 
 
 class World(models.Model):

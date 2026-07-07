@@ -102,7 +102,10 @@ function _gameAuthToken() {
 // Receives a JSON string from the game and forwards it to the API with the JWT.
 window.SI3LN_submit_score = function(dataJson) {
     var tk = _gameAuthToken();
-    if (!tk) return;
+    if (!tk) {
+        console.warn('[leaderboard] no auth token — score NOT submitted. Log in via the dashboard.');
+        return;
+    }
     try {
         var payload = typeof dataJson === 'string' ? JSON.parse(dataJson) : dataJson;
         fetch('/api/game/leaderboard/submit', {
@@ -112,8 +115,18 @@ window.SI3LN_submit_score = function(dataJson) {
                 'Authorization': 'Bearer ' + tk
             },
             body: JSON.stringify(payload)
-        }).catch(function() { /* silent – best-effort */ });
-    } catch(e) { /* ignore parse errors */ }
+        }).then(function(r) {
+            if (r.ok) {
+                console.log('[leaderboard] score submitted (score=' + payload.score + ')');
+                // Refresh the cached leaderboard so the game-over screen shows the new run
+                if (window.SI3LN_fetch_leaderboard) window.SI3LN_fetch_leaderboard(null, 20);
+            } else {
+                r.text().then(function(t) {
+                    console.warn('[leaderboard] submit rejected HTTP ' + r.status + ': ' + t);
+                });
+            }
+        }).catch(function(e) { console.warn('[leaderboard] submit network error:', e); });
+    } catch(e) { console.warn('[leaderboard] submit payload error:', e); }
 };
 
 // ── 0b. Leaderboard fetch bridge (called by Pygbag Python via platform.window) ─
@@ -135,6 +148,52 @@ window.SI3LN_fetch_leaderboard = function(worldId, limit) {
 };
 // Pre-fetch on page load so data is ready when game over screen appears
 window.SI3LN_fetch_leaderboard(null, 20);
+
+// ── 0c. Progression bridges (called by Pygbag Python via platform.window) ─────
+// Python reads platform.window.SI3LN_PROGRESS_CACHE (JSON string) on boot.
+window.SI3LN_PROGRESS_CACHE = null;
+window.SI3LN_fetch_progress = function() {
+    var tk = _gameAuthToken();
+    if (!tk) return;  // guest — nothing to restore
+    fetch('/api/game/progress', { headers: { 'Authorization': 'Bearer ' + tk } })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (data) {
+                window.SI3LN_PROGRESS_CACHE = JSON.stringify(data);
+                console.log('[progress] loaded', data);
+            }
+        })
+        .catch(function(e) { console.warn('[progress] fetch error:', e); });
+};
+// Save progression to the API (called by the game after each level win).
+window.SI3LN_save_progress = function(dataJson) {
+    var tk = _gameAuthToken();
+    if (!tk) {
+        console.warn('[progress] no auth token — progression NOT saved.');
+        return;
+    }
+    try {
+        var payload = typeof dataJson === 'string' ? JSON.parse(dataJson) : dataJson;
+        fetch('/api/game/progress', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+            body: JSON.stringify(payload)
+        }).then(function(r) {
+            if (r.ok) {
+                r.json().then(function(d) {
+                    window.SI3LN_PROGRESS_CACHE = JSON.stringify(d);
+                    console.log('[progress] saved', d);
+                });
+            } else {
+                r.text().then(function(t) {
+                    console.warn('[progress] save rejected HTTP ' + r.status + ': ' + t);
+                });
+            }
+        }).catch(function(e) { console.warn('[progress] save network error:', e); });
+    } catch(e) { console.warn('[progress] save payload error:', e); }
+};
+// Pre-fetch progression on page load so it's ready when the level selector opens.
+window.SI3LN_fetch_progress();
 
 // ── 0. Exit game helper (used in guest banner onclick) ───────────────────────
 function exitGame() {
