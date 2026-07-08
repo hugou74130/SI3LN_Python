@@ -35,7 +35,7 @@
                 <!-- Profil + miniature -->
                 <li class="menu-item player-only" data-page="profile">
                     <span class="menu-icon">👤</span>
-                    <span class="menu-label">Profil</span>
+                    <span class="menu-label" data-i18n="menu.profile">Profil</span>
                     <span class="menu-thumbnail" id="profileThumb">
                         <!-- Miniature avatar ici -->
                     </span>
@@ -44,25 +44,25 @@
                 <!-- Games + logo manette -->
                 <li class="menu-item" data-page="games">
                     <span class="menu-icon">🎮</span>
-                    <span class="menu-label">Games</span>
+                    <span class="menu-label" data-i18n="menu.games">Games</span>
                 </li>
 
                 <!-- Leaderboard + trophée -->
                 <li class="menu-item" data-page="leaderboard">
                     <span class="menu-icon">🏆</span>
-                    <span class="menu-label">Leaderboard</span>
+                    <span class="menu-label" data-i18n="menu.leaderboard">Leaderboard</span>
                 </li>
                 
                 <!-- Help + point d'interrogation -->
                 <li class="menu-item" data-page="help">
                     <span class="menu-icon">❓</span>
-                    <span class="menu-label">Help</span>
+                    <span class="menu-label" data-i18n="menu.help">Help</span>
                 </li>
                 
                 <!-- Settings admin (visible seulement si admin) -->
                 <li class="menu-item admin-only hidden" data-page="settings">
                     <span class="menu-icon">⚙️</span>
-                    <span class="menu-label">Settings</span>
+                    <span class="menu-label" data-i18n="menu.settings">Settings</span>
                 </li>
                 
                 <!-- Séparateur -->
@@ -71,7 +71,7 @@
                 <!-- About us en bas -->
                 <li class="menu-item about-item" data-page="about">
                     <span class="menu-icon">ℹ️</span>
-                    <span class="menu-label">About us</span>
+                    <span class="menu-label" data-i18n="menu.aboutUs">About us</span>
                 </li>
             </ul>
         </div>
@@ -156,7 +156,7 @@
                     </section>
                     
                     <footer>
-                        <p>Tous droits réservés Hugex & Schps... © 2026</p>
+                        <p data-i18n="home.footer">Tous droits réservés Hugex & Schps... © 2026</p>
                     </footer>
                 </div>
             </div>
@@ -333,7 +333,7 @@
                         <!-- Bouton modifier à droite -->
                         <button class="edit-profile-btn" id="editProfileBtn">
                             <span class="edit-icon">✎</span>
-                            <span class="edit-text">Edit profile</span>
+                            <span class="edit-text" data-i18n="profile.editProfile">Edit profile</span>
                         </button>
                     </div>
 
@@ -343,17 +343,17 @@
                         <div class="profile-left-column">
                             <!-- Stats globales (total score, parties, niveau...) -->
                             <div class="profile-section stats-section">
-                                <h3>📊 Statistics</h3>
+                                <h3 data-i18n="profile.statistics">📊 Statistics</h3>
                                 <div class="stats-grid" id="profileStats">
                                     <!-- Rempli par JS -->
-                                    <div class="stat-item loading">Loading stats...</div>
+                                    <div class="stat-item loading" data-i18n="profile.loadingStats">Loading stats...</div>
                                 </div>
                             </div>
                             <div class="profile-section scores-section">
-                                <h3>🏆 Best Scores</h3>
+                                <h3 data-i18n="profile.bestScores">🏆 Best Scores</h3>
                                 <div class="scores-list" id="bestScoresList">
                                     <!-- Rempli par JS -->
-                                    <div class="score-item loading">Loading scores...</div>
+                                    <div class="score-item loading" data-i18n="profile.loadingScores">Loading scores...</div>
                                 </div>
                             </div>
                         </div>
@@ -361,19 +361,19 @@
                         <!-- Colonne du milieu : description libre -->
                         <div class="profile-middle-column">
                             <div class="profile-section bio-section">
-                                <h3>📝 About me</h3>
+                                <h3 data-i18n="profile.aboutMe">📝 About me</h3>
                                 <div class="bio-content" id="userBio">
                                     <!-- Rempli par JS -->
-                                    <p class="bio-placeholder">No description yet...</p>
+                                    <p class="bio-placeholder" data-i18n="profile.noDescription">No description yet...</p>
                                 </div>
                             </div>
 
                             <!-- Section Favoris (en dessous) -->
                             <div class="profile-section favorites-section">
-                                <h3>⭐ Favorite Games</h3>
+                                <h3 data-i18n="profile.favoriteGames">⭐ Favorite Games</h3>
                                 <div class="favorites-grid" id="favoritesGrid">
                                     <!-- Rempli par JS -->
-                                    <div class="favorite-item loading">Loading favorites...</div>
+                                    <div class="favorite-item loading" data-i18n="profile.loadingFavorites">Loading favorites...</div>
                                 </div>
                             </div>
                         </div>
@@ -390,16 +390,16 @@
                         <a href="#" class="page-logo" data-page="home">ARCAD3X</a>
                     </div>
                     
-                    <h1 class="page-title">❓ Help & Support</h1>
+                    <h1 class="page-title" data-i18n="help.pageTitle">❓ Help & Support</h1>
                     
                     <div class="help-content">
                         <!-- Games Tutorials -->
                         <div class="help-section">
                             <div class="help-card" id="gamesTutorials">
                                 <div class="help-icon">🎮</div>
-                                <h2>Games Tutorials</h2>
-                                <p>Learn how to play and master our games</p>
-                                <button class="help-btn" data-help="games">View Tutorials</button>
+                                <h2 data-i18n="help.tutorials">Games Tutorials</h2>
+                                <p data-i18n="help.tutorialsDesc">Learn how to play and master our games</p>
+                                <button class="help-btn" data-help="games" data-i18n="help.viewTutorials">View Tutorials</button>
                             </div>
                         </div>
                         
@@ -407,9 +407,9 @@
                         <div class="help-section">
                             <div class="help-card" id="playerReports">
                                 <div class="help-icon">⚠️</div>
-                                <h2>Report Player</h2>
-                                <p>Report offensive usernames, descriptions, or behavior</p>
-                                <button class="help-btn" data-help="report">Submit Report</button>
+                                <h2 data-i18n="help.reportPlayer">Report Player</h2>
+                                <p data-i18n="help.reportPlayerDesc">Report offensive usernames, descriptions, or behavior</p>
+                                <button class="help-btn" data-help="report" data-i18n="help.reportPlayerBtn">Submit Report</button>
                             </div>
                         </div>
                         
@@ -417,9 +417,9 @@
                         <div class="help-section">
                             <div class="help-card" id="bugReports">
                                 <div class="help-icon">🐛</div>
-                                <h2>Report Bug</h2>
-                                <p>Found a bug? Help us improve the platform</p>
-                                <button class="help-btn" data-help="bug">Report Bug</button>
+                                <h2 data-i18n="help.reportBug">Report Bug</h2>
+                                <p data-i18n="help.reportBugDesc">Found a bug? Help us improve the platform</p>
+                                <button class="help-btn" data-help="bug" data-i18n="help.reportBugBtn">Report Bug</button>
                             </div>
                         </div>
                         
@@ -427,16 +427,16 @@
                         <div class="help-section">
                             <div class="help-card" id="supportProject">
                                 <div class="help-icon">💝</div>
-                                <h2>Support Us</h2>
-                                <p>Support the development of ARCAD3X</p>
-                                <button class="help-btn" data-help="support">Support Project</button>
+                                <h2 data-i18n="help.support">Support Us</h2>
+                                <p data-i18n="help.supportDesc">Support the development of ARCAD3X</p>
+                                <button class="help-btn" data-help="support" data-i18n="help.supportBtn">Support Project</button>
                             </div>
                         </div>
                     </div>
                     
                     <!-- Help Detail Panel (hidden by default) -->
                     <div class="help-detail-panel hidden" id="helpDetailPanel">
-                        <button class="help-back-btn" id="helpBackBtn">← Back to Help Menu</button>
+                        <button class="help-back-btn" id="helpBackBtn" data-i18n="help.backToMenu">← Back to Help Menu</button>
                         <div id="helpDetailContent"></div>
                     </div>
                 </div>
@@ -444,14 +444,14 @@
 
             <div id="settings-page" class="page hidden">
                 <div class="container">
-                    <h1 class="page-title">⚙️ Settings</h1>
+                    <h1 class="page-title" data-i18n="settings.title">⚙️ Settings</h1>
                     <div id="settingsContent"></div>
                 </div>
             </div>
 
             <div id="about-page" class="page hidden">
                 <div class="container">
-                    <h1 class="page-title">ℹ️ About us</h1>
+                    <h1 class="page-title" data-i18n="about.title">ℹ️ About us</h1>
                     <div id="aboutContent"></div>
                 </div>
             </div>
@@ -459,29 +459,29 @@
             <!-- Page Leaderboard -->
             <div id="leaderboard-page" class="page hidden">
                 <div class="container">
-                    <h1 class="page-title">🏆 Leaderboard</h1>
+                    <h1 class="page-title" data-i18n="leaderboard.title">🏆 Leaderboard</h1>
                     <div class="leaderboard-controls">
                         <div class="leaderboard-filter-group">
                             <label for="leaderboard-world-filter" data-i18n="leaderboard.filterWorld">World:</label>
                             <select id="leaderboard-world-filter">
                                 <option value="" data-i18n="leaderboard.allWorlds">All Worlds</option>
-                                <option value="0">🎓 Boot Camp</option>
-                                <option value="1">🌌 Space World</option>
-                                <option value="2">🏜️ Desert World</option>
-                                <option value="3">🌲 Forest World</option>
-                                <option value="4">🌊 Marine World</option>
-                                <option value="5">☠️ Apocalyptic World</option>
+                                <option value="0" data-i18n="leaderboard.worldBootCamp">🎓 Boot Camp</option>
+                                <option value="1" data-i18n="leaderboard.worldSpace">🌌 Space World</option>
+                                <option value="2" data-i18n="leaderboard.worldDesert">🏜️ Desert World</option>
+                                <option value="3" data-i18n="leaderboard.worldForest">🌲 Forest World</option>
+                                <option value="4" data-i18n="leaderboard.worldMarine">🌊 Marine World</option>
+                                <option value="5" data-i18n="leaderboard.worldApocalyptic">☠️ Apocalyptic World</option>
                             </select>
                         </div>
                         <div class="leaderboard-filter-group">
                             <label for="leaderboard-level-filter" data-i18n="leaderboard.filterLevel">Level:</label>
                             <select id="leaderboard-level-filter">
                                 <option value="" data-i18n="leaderboard.allLevels">All Levels</option>
-                                <option value="1">Level 1</option>
-                                <option value="2">Level 2</option>
-                                <option value="3">Level 3</option>
-                                <option value="4">Level 4</option>
-                                <option value="5">Level 5</option>
+                                <option value="1" data-i18n="leaderboard.levelOpt1">Level 1</option>
+                                <option value="2" data-i18n="leaderboard.levelOpt2">Level 2</option>
+                                <option value="3" data-i18n="leaderboard.levelOpt3">Level 3</option>
+                                <option value="4" data-i18n="leaderboard.levelOpt4">Level 4</option>
+                                <option value="5" data-i18n="leaderboard.levelOpt5">Level 5</option>
                             </select>
                         </div>
                         <div class="leaderboard-filter-group">
@@ -493,7 +493,7 @@
                                 <option value="100">100</option>
                             </select>
                         </div>
-                        <button class="leaderboard-refresh-btn" id="leaderboard-refresh">🔄 Refresh</button>
+                        <button class="leaderboard-refresh-btn" id="leaderboard-refresh" data-i18n="leaderboard.refresh">🔄 Refresh</button>
                     </div>
                     <div id="leaderboard-table-wrapper">
                         <div id="leaderboard-table"></div>
@@ -509,7 +509,7 @@
             <!-- Page Games -->
             <div id="games-page" class="page hidden">
                 <div class="container">
-                    <h1 class="page-title">🎮 Games</h1>
+                    <h1 class="page-title" data-i18n="games.pageTitle">🎮 Games</h1>
                     
                     <div class="games-grid" id="gamesGrid">
                         <!-- Carte SI3LN (jeu principal) -->
@@ -517,7 +517,7 @@
                             <div class="game-card-image">
                                 <img src="assets/worlds/home_page.jpg" alt="SI3LN">
                                 <div class="game-overlay">
-                                    <span class="play-now">▶ PLAY NOW</span>
+                                    <span class="play-now" data-i18n="games.playNow">▶ PLAY NOW</span>
                                 </div>
                             </div>
                             <div class="game-card-info">
@@ -530,21 +530,21 @@
                         <div class="game-card coming-soon">
                             <div class="coming-soon-content">
                                 <span class="coming-soon-icon">🎮</span>
-                                <h4>Coming Soon...</h4>
+                                <h4 data-i18n="games.comingSoon">Coming Soon...</h4>
                             </div>
                         </div>
 
                         <div class="game-card coming-soon">
                             <div class="coming-soon-content">
                                 <span class="coming-soon-icon">🎮</span>
-                                <h4>Coming Soon...</h4>
+                                <h4 data-i18n="games.comingSoon">Coming Soon...</h4>
                             </div>
                         </div>
 
                         <div class="game-card coming-soon">
                             <div class="coming-soon-content">
                                 <span class="coming-soon-icon">🎮</span>
-                                <h4>Coming Soon...</h4>
+                                <h4 data-i18n="games.comingSoon">Coming Soon...</h4>
                             </div>
                         </div>
                     </div>
@@ -557,7 +557,7 @@
                 <div class="game-controls-bar">
                     <button class="game-control-btn" id="exitGameBtn">
                         <span class="control-icon">⬅</span>
-                        <span class="control-text">Exit Game</span>
+                        <span class="control-text" data-i18n="games.exitGame">Exit Game</span>
                     </button>
                     
                     <div class="game-title-display">
@@ -567,25 +567,25 @@
                     
                     <button class="game-control-btn" id="fullscreenBtn">
                         <span class="control-icon">⛶</span>
-                        <span class="control-text">Fullscreen</span>
+                        <span class="control-text" data-i18n="games.fullscreen">Fullscreen</span>
                     </button>
                 </div>
                 
                 <!-- Guest info banner -->
                 <div class="guest-info-banner guest-only" id="guestInfo" style="display: none;">
                     <span class="info-icon">ℹ️</span>
-                    <span>Playing as guest - Your score won't be saved. <a href="#" onclick="window.app.navigateTo('login'); return false;">Login</a> to save your progress!</span>
+                    <span><span data-i18n="games.guestBannerPre">Playing as guest - Your score won't be saved.</span> <a href="#" onclick="window.app.navigateTo('login'); return false;" data-i18n="games.loginToSave">Login</a> <span data-i18n="games.toSaveProgress">to save your progress!</span></span>
                 </div>
                 
                 <!-- Navigation du jeu -->
                 <div class="game-navigation">
                     <button class="game-nav-btn" id="prevGameBtn">
                         <span class="nav-arrow">◀</span>
-                        <span class="nav-text">Previous</span>
+                        <span class="nav-text" data-i18n="common.previous">Previous</span>
                     </button>
                     
                     <button class="game-nav-btn" id="nextGameBtn">
-                        <span class="nav-text">Next</span>
+                        <span class="nav-text" data-i18n="common.next">Next</span>
                         <span class="nav-arrow">▶</span>
                     </button>
                 </div>
@@ -606,7 +606,7 @@
                     <!-- Overlay de chargement -->
                     <div class="game-loading" id="gameLoading">
                         <div class="loading-spinner"></div>
-                        <p>Loading game...</p>
+                        <p data-i18n="games.loadingGame">Loading game...</p>
                     </div>
                 </div>
             </div>
@@ -670,8 +670,8 @@
             </div>
 
             <div class="modal-footer">
-                <button class="modal-btn cancel-btn">Cancel</button>
-                <button class="modal-btn save-btn" id="saveProfileBtn">Save Changes</button>
+                <button class="modal-btn cancel-btn" data-i18n="common.cancel">Cancel</button>
+                <button class="modal-btn save-btn" id="saveProfileBtn" data-i18n="profile.saveChanges">Save Changes</button>
             </div>
         </div>
     </div>
@@ -704,32 +704,32 @@
 
     <!-- Scripts -->
     <!-- Config (must load first — sets APP_CONFIG + AppLogger) -->
-    <script src="js/config.js?v=4"></script>
+    <script src="js/config.js?v=5"></script>
 
     <!-- i18n -->
-    <script src="js/i18n.js?v=4"></script>
+    <script src="js/i18n.js?v=5"></script>
 
     <!-- API Client (raw — sets window._rawApiClient + window.api) -->
-    <script src="api.js?v=4"></script>
+    <script src="api.js?v=5"></script>
 
     <!-- Models -->
-    <script src="js/models/player.js?v=4"></script>
-    <script src="js/models/game-session.js?v=4"></script>
-    <script src="js/models/game.js?v=4"></script>
+    <script src="js/models/player.js?v=5"></script>
+    <script src="js/models/game-session.js?v=5"></script>
+    <script src="js/models/game.js?v=5"></script>
 
     <!-- Services -->
-    <script src="js/services/api-facade.js?v=4"></script>
-    <script src="js/services/search-service.js?v=4"></script>
+    <script src="js/services/api-facade.js?v=5"></script>
+    <script src="js/services/search-service.js?v=5"></script>
 
     <!-- Modules -->
-    <script src="js/modules/profile.js?v=4"></script>
-    <script src="js/modules/games.js?v=4"></script>
-    <script src="js/modules/auth.js?v=4"></script>
-    <script src="js/modules/help.js?v=4"></script>
-    <script src="js/modules/leaderboard.js?v=4"></script>
-    <script src="js/modules/mobile.js?v=4"></script>
+    <script src="js/modules/profile.js?v=5"></script>
+    <script src="js/modules/games.js?v=5"></script>
+    <script src="js/modules/auth.js?v=5"></script>
+    <script src="js/modules/help.js?v=5"></script>
+    <script src="js/modules/leaderboard.js?v=5"></script>
+    <script src="js/modules/mobile.js?v=5"></script>
 
     <!-- Main App -->
-    <script src="js/app-refactored.js?v=4"></script>
+    <script src="js/app-refactored.js?v=5"></script>
 </body>
 </html>

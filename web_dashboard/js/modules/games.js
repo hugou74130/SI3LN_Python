@@ -33,7 +33,7 @@ class GamesManager {
         const game = this.games.find(g => g.id === gameId);
         
         if (!game || game.comingSoon) {
-            alert('This game is coming soon!');
+            alert(window.i18n.t('games.comingSoonAlert'));
             return;
         }
         
@@ -205,7 +205,7 @@ class GamesManager {
             const icon = fullscreenBtn.querySelector('.control-icon');
             const text = fullscreenBtn.querySelector('.control-text');
             if (icon) icon.textContent = this.isFullscreen ? '⊡' : '⛶';
-            if (text) text.textContent = this.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen';
+            if (text) text.textContent = this.isFullscreen ? window.i18n.t('games.exitFullscreen') : window.i18n.t('games.fullscreen');
         }
     }
 

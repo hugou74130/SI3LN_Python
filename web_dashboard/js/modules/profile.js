@@ -64,8 +64,8 @@ class ProfileManager {
             scoresList.innerHTML = top5.map((s, i) =>
                 `<div class="score-item">
                     <span class="score-rank">#${i + 1}</span>
-                    <span class="score-value">${s.score} pts</span>
-                    <span class="score-level">Level ${s.level_reached}</span>
+                    <span class="score-value">${s.score} ${window.i18n.t('profile.pts')}</span>
+                    <span class="score-level">${window.i18n.t('profile.levelShort')} ${s.level_reached}</span>
                 </div>`
             ).join('');
         } catch (error) {
@@ -77,7 +77,7 @@ class ProfileManager {
 
     updateProfileDisplay(profile) {
         // Username
-        const displayName = profile.username || 'Player';
+        const displayName = profile.username || window.i18n.t('profile.player');
         document.getElementById('profileDisplayName').textContent = displayName;
         document.getElementById('profileUsername').textContent = profile.username || '';
 
@@ -94,24 +94,24 @@ class ProfileManager {
         if (profile.bio) {
             bioElement.innerHTML = `<p>${this._escapeHtml(profile.bio)}</p>`;
         } else {
-            bioElement.innerHTML = '<p class="bio-placeholder">No description yet...</p>';
+            bioElement.innerHTML = `<p class="bio-placeholder">${window.i18n.t('profile.noDescription')}</p>`;
         }
 
         // Stats
         const statsEl = document.getElementById('profileStats');
         if (statsEl) {
             statsEl.innerHTML = `
-                <div class="stat-card"><span class="stat-value">${profile.total_score ?? 0}</span><span class="stat-label">Total Score</span></div>
-                <div class="stat-card"><span class="stat-value">${profile.games_played ?? 0}</span><span class="stat-label">Games Played</span></div>
-                <div class="stat-card"><span class="stat-value">${profile.highest_level ?? 1}</span><span class="stat-label">Highest Level</span></div>
-                <div class="stat-card"><span class="stat-value">${profile.achievements_count ?? 0}</span><span class="stat-label">Achievements</span></div>
+                <div class="stat-card"><span class="stat-value">${profile.total_score ?? 0}</span><span class="stat-label">${window.i18n.t('profile.totalScore')}</span></div>
+                <div class="stat-card"><span class="stat-value">${profile.games_played ?? 0}</span><span class="stat-label">${window.i18n.t('profile.gamesPlayed')}</span></div>
+                <div class="stat-card"><span class="stat-value">${profile.highest_level ?? 1}</span><span class="stat-label">${window.i18n.t('profile.highestLevel')}</span></div>
+                <div class="stat-card"><span class="stat-value">${profile.achievements_count ?? 0}</span><span class="stat-label">${window.i18n.t('profile.achievements')}</span></div>
             `;
         }
 
         // Favorites (future)
         const favoritesGrid = document.getElementById('favoritesGrid');
         if (favoritesGrid) {
-            favoritesGrid.innerHTML = '<div class="favorite-item">⭐ Favorites coming soon!</div>';
+            favoritesGrid.innerHTML = `<div class="favorite-item">${window.i18n.t('profile.favoritesComingSoon')}</div>`;
         }
 
         // Apply saved background color
@@ -174,7 +174,7 @@ class ProfileManager {
             const file = e.target.files[0];
             if (!file) return;
             if (file.size > 5 * 1024 * 1024) {
-                alert('File too big! Max 5MB');
+                alert(window.i18n.t('profile.fileTooBig'));
                 e.target.value = '';
                 return;
             }
@@ -212,7 +212,7 @@ class ProfileManager {
         const saveBtn = document.getElementById('saveProfileBtn');
         
         // Disable button during save
-        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = window.i18n.t('profile.saving'); }
         
         try {
             // 1. Upload avatar if a new file was selected
@@ -242,9 +242,9 @@ class ProfileManager {
             
         } catch (error) {
             if (window.AppLogger) window.AppLogger.error('Save profile error');
-            alert('Error saving changes');
+            alert(window.i18n.t('profile.errorSaving'));
         } finally {
-            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; }
+            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = window.i18n.t('profile.saveChanges'); }
         }
     }
 
@@ -277,11 +277,11 @@ class ProfileManager {
     }
 
     showPublicProfile(username) {
-        document.getElementById('profileDisplayName').textContent = username || 'Guest';
+        document.getElementById('profileDisplayName').textContent = username || window.i18n.t('profile.guest');
         document.getElementById('profileUsername').textContent = username || 'guest';
-        document.getElementById('userBio').innerHTML = '<p class="bio-placeholder">User not logged in</p>';
+        document.getElementById('userBio').innerHTML = `<p class="bio-placeholder">${window.i18n.t('profile.userNotLoggedIn')}</p>`;
         document.getElementById('bestScoresList').innerHTML = `<div class="score-item">${window.i18n.t('profile.loginToSeeScores')}</div>`;
-        document.getElementById('favoritesGrid').innerHTML = '<div class="favorite-item">Login to see favorites</div>';
+        document.getElementById('favoritesGrid').innerHTML = `<div class="favorite-item">${window.i18n.t('profile.loginToSeeFavorites')}</div>`;
         document.getElementById('editProfileBtn').classList.add('hidden');
     }
 }

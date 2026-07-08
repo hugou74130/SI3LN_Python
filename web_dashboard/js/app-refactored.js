@@ -461,7 +461,7 @@ class AppManager {
                     <h2>${window.i18n.t('about.title')}</h2>
                     <p>${window.i18n.t('about.description')}</p>
                     <p>${window.i18n.t('about.platform')}</p>
-                    <p class="version-info">Version ${version}</p>
+                    <p class="version-info">${window.i18n.t('about.version')} ${version}</p>
                     <p>${window.i18n.t('about.copyright')}</p>
                 </div>
             `;
@@ -494,20 +494,21 @@ class AppManager {
 
         try {
             const stats = await (window.facade || window.api).getStats().catch(() => null);
+            const t = (k) => window.i18n.t(k);
             const statsHtml = stats
                 ? `<ul>
-                    <li>Players: <b>${stats.total_players}</b></li>
-                    <li>Sessions: <b>${stats.total_sessions}</b></li>
-                    <li>Highest Score: <b>${stats.highest_score}</b></li>
-                    <li>Avg Score: <b>${stats.average_score}</b></li>
+                    <li>${t('settings.players')}: <b>${stats.total_players}</b></li>
+                    <li>${t('settings.sessions')}: <b>${stats.total_sessions}</b></li>
+                    <li>${t('settings.highestScore')}: <b>${stats.highest_score}</b></li>
+                    <li>${t('settings.avgScore')}: <b>${stats.average_score}</b></li>
                    </ul>`
-                : '<p>Could not load stats.</p>';
+                : `<p>${t('settings.couldNotLoadStats')}</p>`;
 
             document.getElementById('settingsContent').innerHTML = `
                 <div class="admin-panel">
-                    <h2>Settings</h2>
-                    <p><a href="/admin/" target="_blank">Open Django Admin Panel</a></p>
-                    <h3>Platform Statistics</h3>
+                    <h2>${t('settings.title')}</h2>
+                    <p><a href="/admin/" target="_blank">${t('settings.openAdmin')}</a></p>
+                    <h3>${t('settings.platformStats')}</h3>
                     ${statsHtml}
                 </div>
             `;

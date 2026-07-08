@@ -10,19 +10,26 @@ class SearchService {
         this._cache = new Map();
         this._cacheMaxAge = 60000; // 1 minute
 
-        // Static searchable content for help & games
+        // Static searchable content for help & games.
+        // `title` is the English fallback used for keyword matching; `titleKey`
+        // (when present) provides the translated label shown in the dropdown.
         this._helpArticles = [
-            { type: 'help', id: 'tutorial-si3ln', title: 'SI3LN Game Tutorial', section: 'games', keywords: ['tutorial', 'how to play', 'controls', 'si3ln', 'space invaders', 'guide'] },
-            { type: 'help', id: 'report-player', title: 'Report a Player', section: 'report', keywords: ['report', 'player', 'offensive', 'harassment', 'cheat'] },
-            { type: 'help', id: 'report-bug', title: 'Report a Bug', section: 'bug', keywords: ['bug', 'error', 'crash', 'problem', 'issue', 'glitch'] },
-            { type: 'help', id: 'support', title: 'Support ARCAD3X', section: 'support', keywords: ['support', 'donate', 'help', 'contribute'] },
+            { type: 'help', id: 'tutorial-si3ln', title: 'SI3LN Game Tutorial', titleKey: 'help.tutorials', section: 'games', keywords: ['tutorial', 'how to play', 'controls', 'si3ln', 'space invaders', 'guide'] },
+            { type: 'help', id: 'report-player', title: 'Report a Player', titleKey: 'help.reportPlayerBtn', section: 'report', keywords: ['report', 'player', 'offensive', 'harassment', 'cheat'] },
+            { type: 'help', id: 'report-bug', title: 'Report a Bug', titleKey: 'help.reportBugBtn', section: 'bug', keywords: ['bug', 'error', 'crash', 'problem', 'issue', 'glitch'] },
+            { type: 'help', id: 'support', title: 'Support ARCAD3X', titleKey: 'help.support', section: 'support', keywords: ['support', 'donate', 'help', 'contribute'] },
         ];
 
         this._gamesCatalog = [
             { type: 'game', id: 'si3ln', title: 'SI3LN - Space Invaders III Last Night', keywords: ['si3ln', 'space', 'invaders', 'arcade', 'shooter', 'retro'] },
-            { type: 'game', id: 'game2', title: 'Space Warriors (Coming Soon)', keywords: ['space', 'warriors', 'coming soon'] },
-            { type: 'game', id: 'game3', title: 'Fantasy Quest (Coming Soon)', keywords: ['fantasy', 'quest', 'coming soon'] },
+            { type: 'game', id: 'game2', title: 'Space Warriors', comingSoon: true, keywords: ['space', 'warriors', 'coming soon'] },
+            { type: 'game', id: 'game3', title: 'Fantasy Quest', comingSoon: true, keywords: ['fantasy', 'quest', 'coming soon'] },
         ];
+    }
+
+    /** Resolve a translation key with a safe fallback. */
+    _t(key, fallback) {
+        return window.i18n ? window.i18n.t(key) : fallback;
     }
 
     /**
@@ -76,13 +83,14 @@ class SearchService {
 
         for (const game of this._gamesCatalog) {
             if (this._matches(game, query)) {
+                const comingSoon = this._t('games.comingSoon', 'Coming Soon');
                 results.push({
                     type: 'game',
                     id: game.id,
-                    title: game.title,
+                    title: game.comingSoon ? `${game.title} (${comingSoon})` : game.title,
                     icon: '🎮',
                     action: game.id === 'si3ln' ? 'launch-game' : null,
-                    description: game.id === 'si3ln' ? 'Click to play' : 'Coming soon',
+                    description: game.id === 'si3ln' ? this._t('search.clickToPlay', 'Click to play') : comingSoon,
                 });
             }
         }
@@ -92,11 +100,11 @@ class SearchService {
                 results.push({
                     type: 'help',
                     id: article.id,
-                    title: article.title,
+                    title: article.titleKey ? this._t(article.titleKey, article.title) : article.title,
                     icon: '❓',
                     action: 'show-help',
                     section: article.section,
-                    description: 'Help article',
+                    description: this._t('search.helpArticle', 'Help article'),
                 });
             }
         }
@@ -123,7 +131,7 @@ class SearchService {
                 title: p.username,
                 icon: '👤',
                 action: 'show-leaderboard',
-                description: `Player${p.total_score ? ' — ' + p.total_score + ' pts' : ''}`,
+                description: `${this._t('search.playerResult', 'Player')}${p.total_score ? ' — ' + p.total_score + ' ' + this._t('profile.pts', 'pts') : ''}`,
             }));
     }
 

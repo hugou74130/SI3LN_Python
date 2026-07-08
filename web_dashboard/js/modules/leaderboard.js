@@ -141,7 +141,7 @@ class LeaderboardModule {
             this.renderTable();
             this.updatePagination();
         } catch (error) {
-            this.showError(error.message || 'Failed to load leaderboard');
+            this.showError(error.message || (window.i18n ? window.i18n.t('leaderboard.loadError') : 'Failed to load leaderboard'));
         } finally {
             this.loading = false;
         }
@@ -194,13 +194,13 @@ class LeaderboardModule {
                 <thead>
                     <tr>
                         <th class="lb-rank-col">#</th>
-                        <th>Player</th>
-                        <th class="lb-score-col">Score</th>
-                        <th class="lb-level-col">Lvl</th>
-                        <th class="lb-char-col">Char</th>
-                        <th class="lb-time-col">Time</th>
-                        <th class="lb-acc-col">Acc</th>
-                        <th class="lb-date-col">Date</th>
+                        <th>${window.i18n ? window.i18n.t('leaderboard.player') : 'Player'}</th>
+                        <th class="lb-score-col">${window.i18n ? window.i18n.t('leaderboard.score') : 'Score'}</th>
+                        <th class="lb-level-col">${window.i18n ? window.i18n.t('leaderboard.level') : 'Lvl'}</th>
+                        <th class="lb-char-col">${window.i18n ? window.i18n.t('leaderboard.character') : 'Char'}</th>
+                        <th class="lb-time-col">${window.i18n ? window.i18n.t('leaderboard.time') : 'Time'}</th>
+                        <th class="lb-acc-col">${window.i18n ? window.i18n.t('leaderboard.accuracy') : 'Acc'}</th>
+                        <th class="lb-date-col">${window.i18n ? window.i18n.t('leaderboard.date') : 'Date'}</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -286,8 +286,8 @@ class LeaderboardModule {
             // If less than 24h, show relative time
             if (diff < 86400000) {
                 const h = Math.floor(diff / 3600000);
-                if (h < 1) return 'now';
-                if (h < 24) return `${h}h ago`;
+                if (h < 1) return window.i18n ? window.i18n.t('leaderboard.timeNow') : 'now';
+                if (h < 24) return window.i18n ? window.i18n.t('leaderboard.hoursAgo').replace('{h}', h) : `${h}h ago`;
             }
             return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
         } catch {

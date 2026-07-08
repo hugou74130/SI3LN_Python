@@ -21,14 +21,14 @@ class AuthManager {
         if (forgotLink) {
             forgotLink.addEventListener('click', (e) => {
                 e.preventDefault();
-                alert('Password recovery feature coming soon!');
+                alert(window.i18n.t('alerts.passwordRecovery'));
             });
         }
     }
 
     async handleSignup() {
         if (!this.validateForm()) {
-            alert('Please fix the form errors before submitting.');
+            alert(window.i18n.t('alerts.fixFormErrors'));
             return;
         }
         const username = document.getElementById('signupPseudo')?.value;
@@ -60,7 +60,7 @@ class AuthManager {
             }
         } catch (err) {
             if (window.AppLogger) window.AppLogger.error('Signup failed');
-            alert('Registration failed. Username or email may already be taken.');
+            alert(window.i18n.t('alerts.registrationFailed'));
             if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = window.i18n.t('signup.createButton'); }
         }
     }
@@ -70,7 +70,7 @@ class AuthManager {
         const password = document.getElementById('loginPassword')?.value;
 
         if (!username || !password) {
-            alert('Please fill in all fields');
+            alert(window.i18n.t('alerts.fillAllFields'));
             return;
         }
 
@@ -91,7 +91,7 @@ class AuthManager {
             
         } catch (error) {
             if (window.AppLogger) window.AppLogger.error('Login failed');
-            alert('Login failed. Please check your credentials.');
+            alert(window.i18n.t('alerts.loginFailed'));
             
             const submitBtn = document.getElementById('loginSubmitBtn');
             if (submitBtn) {

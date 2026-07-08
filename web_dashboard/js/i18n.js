@@ -14,6 +14,7 @@ class I18nManager {
                     home: "Home",
                     profile: "Profile",
                     games: "Games",
+                    leaderboard: "Leaderboard",
                     help: "Help",
                     settings: "Settings",
                     aboutUs: "About us",
@@ -37,7 +38,8 @@ class I18nManager {
                     noScores: "No scores yet. Be the first to play!",
                     leaderboardError: "Could not load leaderboard.",
                     welcomeUser: "Welcome,",
-                    pleaseLogin: "Please log in"
+                    pleaseLogin: "Please log in",
+                    footer: "All rights reserved Hugex & Schps... © 2026"
                 },
                 // Leaderboard page
                 leaderboard: {
@@ -58,7 +60,22 @@ class I18nManager {
                     character: "Char",
                     time: "Time",
                     accuracy: "Acc",
-                    date: "Date"
+                    date: "Date",
+                    worldBootCamp: "🎓 Boot Camp",
+                    worldSpace: "🌌 Space World",
+                    worldDesert: "🏜️ Desert World",
+                    worldForest: "🌲 Forest World",
+                    worldMarine: "🌊 Marine World",
+                    worldApocalyptic: "☠️ Apocalyptic World",
+                    levelOpt1: "Level 1",
+                    levelOpt2: "Level 2",
+                    levelOpt3: "Level 3",
+                    levelOpt4: "Level 4",
+                    levelOpt5: "Level 5",
+                    refresh: "🔄 Refresh",
+                    timeNow: "now",
+                    hoursAgo: "{h}h ago",
+                    loadError: "Failed to load leaderboard"
                 },
                 // Login page
                 login: {
@@ -116,7 +133,28 @@ class I18nManager {
                     saveChanges: "Save Changes",
                     cancel: "Cancel",
                     noGamesPlayed: "No games played yet!",
-                    loginToSeeScores: "Log in to see your scores"
+                    loginToSeeScores: "Log in to see your scores",
+                    statistics: "📊 Statistics",
+                    bestScores: "🏆 Best Scores",
+                    aboutMe: "📝 About me",
+                    loadingStats: "Loading stats...",
+                    loadingScores: "Loading scores...",
+                    loadingFavorites: "Loading favorites...",
+                    noDescription: "No description yet...",
+                    pts: "pts",
+                    levelShort: "Level",
+                    player: "Player",
+                    totalScore: "Total Score",
+                    gamesPlayed: "Games Played",
+                    highestLevel: "Highest Level",
+                    achievements: "Achievements",
+                    favoritesComingSoon: "⭐ Favorites coming soon!",
+                    fileTooBig: "File too big! Max 5MB",
+                    saving: "Saving…",
+                    errorSaving: "Error saving changes",
+                    guest: "Guest",
+                    userNotLoggedIn: "User not logged in",
+                    loginToSeeFavorites: "Login to see favorites"
                 },
                 // Games page
                 games: {
@@ -129,11 +167,18 @@ class I18nManager {
                     fullscreen: "Fullscreen",
                     exitFullscreen: "Exit Fullscreen",
                     previousGame: "◀ Previous",
-                    nextGame: "Next ▶"
+                    nextGame: "Next ▶",
+                    pageTitle: "🎮 Games",
+                    playNow: "▶ PLAY NOW",
+                    exitGame: "Exit Game",
+                    loadingGame: "Loading game...",
+                    comingSoonAlert: "This game is coming soon!",
+                    guestBannerPre: "Playing as guest - Your score won't be saved."
                 },
                 // Help page
                 help: {
                     title: "Help Center",
+                    pageTitle: "❓ Help & Support",
                     tutorials: "Game Tutorials",
                     tutorialsDesc: "Learn how to play our games",
                     viewTutorials: "View Tutorials",
@@ -226,20 +271,42 @@ class I18nManager {
                 },
                 // Search
                 search: {
-                    noResults: "No results found"
+                    noResults: "No results found",
+                    clickToPlay: "Click to play",
+                    helpArticle: "Help article",
+                    playerResult: "Player"
                 },
                 // Settings page
                 settings: {
                     title: "⚙️ Settings",
                     language: "Language",
-                    changeLanguage: "Change language"
+                    changeLanguage: "Change language",
+                    players: "Players",
+                    sessions: "Sessions",
+                    highestScore: "Highest Score",
+                    avgScore: "Avg Score",
+                    couldNotLoadStats: "Could not load stats.",
+                    openAdmin: "Open Django Admin Panel",
+                    platformStats: "Platform Statistics"
                 },
                 // About page
                 about: {
                     title: "ℹ️ About us",
                     description: "SI3LN project by Hugex & Schps",
                     platform: "FullStack gaming platform",
-                    copyright: "© 2026 ARCAD3X - All rights reserved"
+                    copyright: "© 2026 ARCAD3X - All rights reserved",
+                    version: "Version"
+                },
+                // Alerts
+                alerts: {
+                    passwordRecovery: "Password recovery feature coming soon!",
+                    fixFormErrors: "Please fix the form errors before submitting.",
+                    registrationFailed: "Registration failed. Username or email may already be taken.",
+                    fillAllFields: "Please fill in all fields",
+                    loginFailed: "Login failed. Please check your credentials.",
+                    fillRequired: "Please fill in all required fields.",
+                    reportDownloaded: "Report file downloaded! Please email it to support@arcad3x.com",
+                    bugDownloaded: "Bug report downloaded! Thank you for helping us improve ARCAD3X."
                 },
                 // Common
                 common: {
@@ -261,6 +328,7 @@ class I18nManager {
                     home: "Accueil",
                     profile: "Profil",
                     games: "Jeux",
+                    leaderboard: "Classement",
                     help: "Aide",
                     settings: "Paramètres",
                     aboutUs: "À propos",
@@ -284,7 +352,8 @@ class I18nManager {
                     noScores: "Aucun score pour l'instant. Soyez le premier à jouer !",
                     leaderboardError: "Impossible de charger le classement.",
                     welcomeUser: "Bienvenue,",
-                    pleaseLogin: "Veuillez vous connecter"
+                    pleaseLogin: "Veuillez vous connecter",
+                    footer: "Tous droits réservés Hugex & Schps... © 2026"
                 },
                 // Leaderboard page
                 leaderboard: {
@@ -305,7 +374,22 @@ class I18nManager {
                     character: "Perso",
                     time: "Durée",
                     accuracy: "Préc.",
-                    date: "Date"
+                    date: "Date",
+                    worldBootCamp: "🎓 Boot Camp",
+                    worldSpace: "🌌 Monde Spatial",
+                    worldDesert: "🏜️ Monde Désert",
+                    worldForest: "🌲 Monde Forêt",
+                    worldMarine: "🌊 Monde Marin",
+                    worldApocalyptic: "☠️ Monde Apocalyptique",
+                    levelOpt1: "Niveau 1",
+                    levelOpt2: "Niveau 2",
+                    levelOpt3: "Niveau 3",
+                    levelOpt4: "Niveau 4",
+                    levelOpt5: "Niveau 5",
+                    refresh: "🔄 Actualiser",
+                    timeNow: "maintenant",
+                    hoursAgo: "il y a {h}h",
+                    loadError: "Échec du chargement du classement"
                 },
                 // Login page
                 login: {
@@ -363,7 +447,28 @@ class I18nManager {
                     saveChanges: "Enregistrer les modifications",
                     cancel: "Annuler",
                     noGamesPlayed: "Aucune partie jouée pour l'instant !",
-                    loginToSeeScores: "Connectez-vous pour voir vos scores"
+                    loginToSeeScores: "Connectez-vous pour voir vos scores",
+                    statistics: "📊 Statistiques",
+                    bestScores: "🏆 Meilleurs scores",
+                    aboutMe: "📝 À propos de moi",
+                    loadingStats: "Chargement des stats...",
+                    loadingScores: "Chargement des scores...",
+                    loadingFavorites: "Chargement des favoris...",
+                    noDescription: "Aucune description pour l'instant...",
+                    pts: "pts",
+                    levelShort: "Niveau",
+                    player: "Joueur",
+                    totalScore: "Score total",
+                    gamesPlayed: "Parties jouées",
+                    highestLevel: "Niveau max",
+                    achievements: "Succès",
+                    favoritesComingSoon: "⭐ Favoris bientôt disponibles !",
+                    fileTooBig: "Fichier trop volumineux ! Max 5MB",
+                    saving: "Enregistrement…",
+                    errorSaving: "Erreur lors de l'enregistrement",
+                    guest: "Invité",
+                    userNotLoggedIn: "Utilisateur non connecté",
+                    loginToSeeFavorites: "Connectez-vous pour voir les favoris"
                 },
                 // Games page
                 games: {
@@ -376,11 +481,18 @@ class I18nManager {
                     fullscreen: "Plein écran",
                     exitFullscreen: "Quitter le plein écran",
                     previousGame: "◀ Précédent",
-                    nextGame: "Suivant ▶"
+                    nextGame: "Suivant ▶",
+                    pageTitle: "🎮 Jeux",
+                    playNow: "▶ JOUER",
+                    exitGame: "Quitter le jeu",
+                    loadingGame: "Chargement du jeu...",
+                    comingSoonAlert: "Ce jeu arrive bientôt !",
+                    guestBannerPre: "Vous jouez en tant qu'invité - Votre score ne sera pas sauvegardé."
                 },
                 // Help page
                 help: {
                     title: "Centre d'aide",
+                    pageTitle: "❓ Aide & Support",
                     tutorials: "Tutoriels de jeu",
                     tutorialsDesc: "Apprenez à jouer à nos jeux",
                     viewTutorials: "Voir les tutoriels",
@@ -473,20 +585,42 @@ class I18nManager {
                 },
                 // Search
                 search: {
-                    noResults: "Aucun résultat trouvé"
+                    noResults: "Aucun résultat trouvé",
+                    clickToPlay: "Cliquez pour jouer",
+                    helpArticle: "Article d'aide",
+                    playerResult: "Joueur"
                 },
                 // Settings page
                 settings: {
                     title: "⚙️ Paramètres",
                     language: "Langue",
-                    changeLanguage: "Changer de langue"
+                    changeLanguage: "Changer de langue",
+                    players: "Joueurs",
+                    sessions: "Sessions",
+                    highestScore: "Meilleur score",
+                    avgScore: "Score moyen",
+                    couldNotLoadStats: "Impossible de charger les statistiques.",
+                    openAdmin: "Ouvrir le panneau d'administration Django",
+                    platformStats: "Statistiques de la plateforme"
                 },
                 // About page
                 about: {
                     title: "ℹ️ À propos de nous",
                     description: "Projet SI3LN par Hugex & Schps",
                     platform: "Plateforme de jeu FullStack",
-                    copyright: "© 2026 ARCAD3X - Tous droits réservés"
+                    copyright: "© 2026 ARCAD3X - Tous droits réservés",
+                    version: "Version"
+                },
+                // Alerts
+                alerts: {
+                    passwordRecovery: "La récupération de mot de passe arrive bientôt !",
+                    fixFormErrors: "Veuillez corriger les erreurs du formulaire avant de soumettre.",
+                    registrationFailed: "Échec de l'inscription. Le nom d'utilisateur ou l'email est peut-être déjà pris.",
+                    fillAllFields: "Veuillez remplir tous les champs",
+                    loginFailed: "Échec de la connexion. Vérifiez vos identifiants.",
+                    fillRequired: "Veuillez remplir tous les champs obligatoires.",
+                    reportDownloaded: "Rapport téléchargé ! Envoyez-le par email à support@arcad3x.com",
+                    bugDownloaded: "Rapport de bug téléchargé ! Merci de nous aider à améliorer ARCAD3X."
                 },
                 // Common
                 common: {

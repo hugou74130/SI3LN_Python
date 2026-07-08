@@ -278,7 +278,7 @@ class HelpManager {
         };
 
         if (!data.username || !data.reason || !data.details) {
-            alert('Please fill in all required fields.');
+            alert(window.i18n.t('alerts.fillRequired'));
             return;
         }
 
@@ -325,7 +325,7 @@ class HelpManager {
             'text/plain'
         );
 
-        alert('Report file downloaded! Please email it to support@arcad3x.com');
+        alert(window.i18n.t('alerts.reportDownloaded'));
         this.showHelpMenu();
     }
 
@@ -342,7 +342,7 @@ class HelpManager {
         };
 
         if (!data.title || !data.category || !data.description) {
-            alert('Please fill in all required fields.');
+            alert(window.i18n.t('alerts.fillRequired'));
             return;
         }
 
@@ -390,7 +390,7 @@ class HelpManager {
             'text/plain'
         );
 
-        alert('Bug report downloaded! Thank you for helping us improve ARCAD3X.');
+        alert(window.i18n.t('alerts.bugDownloaded'));
         this.showHelpMenu();
     }
 
