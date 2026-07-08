@@ -257,22 +257,40 @@ var barInterval = setInterval(function() {
   pct = Math.min(pct + 2, 90);
   document.getElementById('bar').style.width = pct + '%';
   if (pct >= 40) document.getElementById('status').textContent = 'Loading Python runtime…';
-  if (pct >= 70) document.getElementById('status').textContent = 'Starting game…';
+  if (pct >= 70) document.getElementById('status').textContent = 'Almost there…';
 }, 400);
 
-frame.onload = function() {
+var readyFallback = null;
+var overlayHidden = false;
+function hideOverlay() {
+  if (overlayHidden) return;
+  overlayHidden = true;
   clearInterval(barInterval);
+  if (readyFallback) clearTimeout(readyFallback);
   document.getElementById('bar').style.width = '100%';
   document.getElementById('status').textContent = 'Game ready!';
   setTimeout(function() {
     document.getElementById('overlay').classList.add('hidden');
-  }, 600);
-  // pygame.SCALED handles all canvas scaling + input remapping automatically.
-  // No CSS injection needed.
+  }, 300);
+}
+
+// The Pygbag game posts this once its first frame is actually on screen
+// (see game.py `_signal_ready`). That is the right moment to reveal the game:
+// the iframe's own load event fires much earlier, while the WASM runtime is
+// still compiling — which is when pygbag's raw loading screen would show.
+window.addEventListener('message', function(e) {
+  if (e && e.data === 'SI3LN_GAME_READY') hideOverlay();
+});
+
+frame.onload = function() {
+  // iframe DOM is up, but the game is still booting — keep the branded overlay
+  // until SI3LN_GAME_READY arrives, with a safety net in case it never does.
+  document.getElementById('status').textContent = 'Loading Python runtime…';
+  readyFallback = setTimeout(hideOverlay, 30000);
 };
 frame.onerror = function() {
   clearInterval(barInterval);
-  document.getElementById('status').textContent = 'Failed to load game. Is the builder container done?';
+  document.getElementById('status').textContent = 'Failed to load game. Please retry.';
 };
 
 frame.src = pygbagSrc;

@@ -269,11 +269,9 @@ class Game:
         cx = self.rm.cx   # 640 – horizontal centre of reference canvas
         cy = self.rm.cy   # 360 – vertical centre of reference canvas
 
-        # Main menu buttons - Style arcade avec fond transparent
-        self.btn_start = Button(cx, cy - 40, 250, 70, "START",
+        # Main menu button - Style arcade avec fond transparent
+        self.btn_start = Button(cx, cy, 250, 70, "START",
                                self.font_medium, bg_color=None, text_color=WHITE, border_color=WHITE)
-        self.btn_continue = Button(cx, cy + 50, 250, 70, "PLAY",
-                                   self.font_medium, bg_color=None, text_color=WHITE, border_color=WHITE)
 
         if self.rm.is_portrait:
             # Portrait: stack the utility buttons vertically at bottom-centre
@@ -529,13 +527,7 @@ class Game:
             pos = self.rm.screen_to_ref(*event.pos)
             
             if self.btn_start.is_clicked(pos):
-                self.auth.login_as_guest(self.selected_character)
-                self.update_profile_icon()
-                self.level_selector.open()
-                self.state = STATE_LEVEL_SELECT
-            
-            elif self.btn_continue.is_clicked(pos):
-                # Login is handled by the web dashboard – go straight to play
+                # Preserve an existing web-dashboard session; otherwise play as guest
                 if self.api.is_authenticated():
                     self.update_profile_icon()
                 else:
@@ -543,7 +535,7 @@ class Game:
                     self.update_profile_icon()
                 self.level_selector.open()
                 self.state = STATE_LEVEL_SELECT
-            
+
             elif self.btn_controls.is_clicked(pos):
                 self.keybinding_screen.open()
 
@@ -1588,7 +1580,6 @@ class Game:
         
         if self.state == STATE_MAIN_MENU:
             self.btn_start.update(mouse_pos)
-            self.btn_continue.update(mouse_pos)
             self.btn_controls.update(mouse_pos)
             self.btn_help.update(mouse_pos)
             self.btn_game.update(mouse_pos)
@@ -1915,7 +1906,6 @@ class Game:
         self.screen.blit(subtitle, subtitle_rect)
         
         self.btn_start.draw(self.screen)
-        self.btn_continue.draw(self.screen)
         self.btn_controls.draw(self.screen)
         self.btn_help.draw(self.screen)
         self.btn_game.draw(self.screen)
@@ -2432,14 +2422,34 @@ class Game:
             self.create_ui()
             self.update_profile_icon()
     
+    def _signal_ready(self):
+        """Browser build only: tell the host page that the first frame has
+        rendered so it can dismiss its loading overlay at the right moment
+        (i.e. when the game is actually on screen, not when the iframe DOM
+        merely finished loading). No-op on desktop and if anything is missing.
+        """
+        if not self._wasm:
+            return
+        try:
+            import platform
+            # This pygbag iframe is hosted by web_dashboard/game/index.html,
+            # which owns the ARCAD3X loading overlay — postMessage climbs to it.
+            platform.window.parent.postMessage("SI3LN_GAME_READY", "*")
+        except Exception:
+            pass
+
     async def run(self):
         """Main game loop"""
         fps = 60
         clock = pygame.time.Clock()
+        first_frame = True
         while self.running:
             self.handle_events()
             self.update()
             self.draw()
+            if first_frame:
+                first_frame = False
+                self._signal_ready()  # first frame is on screen — hide the web loader
             clock.tick(fps)
             await asyncio.sleep(0)  # yield to browser – rAF controls timing
 
