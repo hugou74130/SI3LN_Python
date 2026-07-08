@@ -614,6 +614,17 @@ class Boss(pygame.sprite.Sprite):
         self.screen_width = screen_width
         self.world_name = world_name
 
+        # Display name for the boss health bar (game.py renders `boss.name`).
+        _BOSS_NAMES = {
+            "BootCamp": "Drill Sergeant",
+            "Space": "Star Devourer",
+            "Desert": "Sand Colossus",
+            "Forest": "Ancient Warden",
+            "Marine": "Abyss Leviathan",
+            "Apocalyptic": "Doombringer",
+        }
+        self.name = _BOSS_NAMES.get(world_name, world_name or "Boss")
+
         # Health scales with level
         self.max_health = 50 + level * 15
         self.health = self.max_health
