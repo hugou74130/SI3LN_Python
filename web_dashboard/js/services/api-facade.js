@@ -169,6 +169,11 @@ class ApiFacadeService {
         return [];
     }
 
+    // Player's leaderboard history (personal bests) — the real achieved scores.
+    async getPlayerBestScores(playerId) {
+        return this._raw.request(`/game/leaderboard/player/${playerId}`);
+    }
+
     // ── Game Sessions ─────────────────────────────────────────────
 
     async createGameSession(worldId = null) {

@@ -47,27 +47,38 @@ class ProfileManager {
     async loadBestScores(playerId) {
         try {
             const api = window.facade || this.api;
-            const sessions = await api.getGameSessions(playerId);
+            // Real scores live in the leaderboard (personal bests), not in game
+            // sessions — sessions only track start/end and never store the score.
+            const history = await api.getPlayerBestScores(playerId);
             const scoresList = document.getElementById('bestScoresList');
             if (!scoresList) return;
 
-            if (!sessions || sessions.length === 0) {
+            // Prefer flagged personal bests; fall back to recent runs (the API
+            // does not currently flag is_pb, so personal_bests is often empty
+            // while recent_runs still holds the real scores).
+            const pbs = (history && Array.isArray(history.personal_bests)) ? history.personal_bests : [];
+            const recent = (history && Array.isArray(history.recent_runs)) ? history.recent_runs : [];
+            const bests = pbs.length ? pbs : recent;
+
+            if (bests.length === 0) {
                 scoresList.innerHTML = `<div class="score-item">${window.i18n.t('profile.noGamesPlayed')}</div>`;
                 return;
             }
 
             // Sort by score descending, take top 5
-            const top5 = sessions
-                .sort((a, b) => b.score - a.score)
+            const top5 = bests
+                .slice()
+                .sort((a, b) => (b.score || 0) - (a.score || 0))
                 .slice(0, 5);
 
-            scoresList.innerHTML = top5.map((s, i) =>
-                `<div class="score-item">
+            scoresList.innerHTML = top5.map((s, i) => {
+                const level = s.level_id ?? s.level_reached ?? '—';
+                return `<div class="score-item">
                     <span class="score-rank">#${i + 1}</span>
                     <span class="score-value">${s.score} ${window.i18n.t('profile.pts')}</span>
-                    <span class="score-level">${window.i18n.t('profile.levelShort')} ${s.level_reached}</span>
-                </div>`
-            ).join('');
+                    <span class="score-level">${window.i18n.t('profile.levelShort')} ${level}</span>
+                </div>`;
+            }).join('');
         } catch (error) {
             const scoresList = document.getElementById('bestScoresList');
             if (scoresList) scoresList.innerHTML = `<div class="score-item">${window.i18n.t('profile.loginToSeeScores')}</div>`;

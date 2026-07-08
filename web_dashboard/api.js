@@ -129,6 +129,12 @@ class APIClient {
         return this.request(`/game/leaderboard?limit=${limit}`);
     }
 
+    // Player's leaderboard history (personal bests + recent runs) — the real
+    // scores the player achieved. Game sessions only track start/end, not score.
+    async getPlayerBestScores(playerId) {
+        return this.request(`/game/leaderboard/player/${playerId}`);
+    }
+
     async getCurrentUser() {
         return this.request('/auth/me');
     }
