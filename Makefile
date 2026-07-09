@@ -4,7 +4,7 @@
 COMPOSE  = docker compose -f Docker/docker-compose.yml
 GAME_DIR = Game_Python
 
-.PHONY: up down build rebuild logs game restart-frontend shell-api migrate
+.PHONY: up down build rebuild reset logs game restart-frontend shell-api migrate
 
 ## Start all services (detached)
 up:
@@ -18,8 +18,17 @@ down:
 build:
 	$(COMPOSE) up --build -d
 
-## Full rebuild from scratch (images + volumes reset)
+## Rebuild images and restart — KEEPS your data (DB, scores, progression)
 rebuild:
+	$(COMPOSE) down
+	$(COMPOSE) up --build -d
+
+## DANGER: delete ALL data (database, redis, media) and rebuild from scratch.
+## This is the only target that wipes the postgres volume — it asks first.
+reset:
+	@echo "⚠️  This DELETES the database: players, leaderboard scores, progression — everything."
+	@read -p "Type 'yes' to wipe all data and rebuild: " ans; \
+	 [ "$$ans" = "yes" ] || { echo "Aborted — nothing deleted."; exit 1; }
 	$(COMPOSE) down -v
 	$(COMPOSE) up --build -d
 
