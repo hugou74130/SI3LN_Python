@@ -7,8 +7,10 @@
 **Version:** 2.0  
 **Repository Code:** `https://github.com/hugou74130/SI3LN`  
 **Documentation:** `https://github.com/hugou74130/arcad3x-stage3-private`  
-**Game Engine:** `https://github.com/hugou74130/SI3LN/tree/main/game_engine_python`  
-**Backend API:** `https://github.com/hugou74130/SI3LN/tree/main/backend_api_python`
+**Game Engine:** `Game_Python/` (Pygame + Pygbag/WASM)  
+**Backend API:** `api/` (Django + Django Ninja)  
+**Web Dashboard:** `web_dashboard/` (Vanilla JS SPA served by nginx)  
+**Orchestration:** `Docker/docker-compose.yml` (db · redis · api · frontend)
 
 ---
 
@@ -344,11 +346,13 @@ Game_Python/
 │                          └─ get_rank()          → compute hypothetical rank
 │
 ├── api_client.py        → APIClient class
-│                          ├─ set_token()        → decode JWT payload (player_id, username)
-│                          ├─ is_authenticated()  → token presence check
-│                          ├─ _post() / _patch()  → HTTP with Bearer JWT, 5s timeout
-│                          ├─ create_session()   → POST /api/game/sessions
-│                          └─ submit_score()      → PATCH /api/game/sessions/{id}
+│                          ├─ set_token()          → decode JWT payload (player_id, username)
+│                          ├─ is_authenticated()    → token presence check
+│                          ├─ create_session()     → POST /api/game/sessions
+│                          ├─ submit_leaderboard()  → POST /leaderboard/submit (browser: SI3LN_submit_score bridge)
+│                          ├─ submit_progress()     → PATCH /progress (browser: SI3LN_save_progress bridge)
+│                          ├─ get_leaderboard_global() → GET /leaderboard/global (browser: reads cache)
+│                          └─ _post/_get/_patch()   → HTTP with Bearer JWT, 5s timeout (desktop only)
 │
 ├── level_selector.py    → LevelSelector class
 │                          ├─ draw()             → world carousel + level dots
@@ -441,12 +445,17 @@ The following tables document each class with its attributes, methods, types, an
 
 | Method | Return Type | Parameters | Description |
 |:---|:---|:---|:---|
-| `set_token(token)` | `None` | `token: str` | Decode JWT payload, set internal state. |
-| `is_authenticated()` | `bool` | — | Check if token is present and not expired. |
+| `set_token(token)` | `None` | `token: str` | Decode JWT payload, set `_player_id` / `_username`. |
+| `is_authenticated()` | `bool` | — | Check if a token is present (guest = no token). |
 | `create_session(world_id)` | `dict \| None` | `world_id: int \| None` | POST `/api/game/sessions`. Returns `{id, world_id, started_at}`. |
-| `submit_score(session_id, score, level_reached, completed)` | `dict \| None` | `session_id: int, score: int, level_reached: int, completed: bool` | PATCH `/api/game/sessions/{id}`. |
-| `_post(endpoint, payload)` | `dict \| None` | `endpoint: str, payload: dict` | Internal: HTTP POST with Bearer JWT, 5s timeout. |
-| `_patch(endpoint, payload)` | `dict \| None` | `endpoint: str, payload: dict` | Internal: HTTP PATCH with Bearer JWT, 5s timeout. |
+| `submit_leaderboard(score, world_id, level_id, character_used, duration_sec, accuracy_pct, enemies_killed, powerups_used, bullets_fired, replay_hash)` | `dict \| None` | run stats + anti-cheat `replay_hash` | **The real score path.** Desktop → `POST /api/game/leaderboard/submit`; browser → JS bridge `SI3LN_submit_score(json)`. |
+| `submit_progress(unlocked_worlds, world_levels)` | `dict \| None` | `unlocked_worlds: list, world_levels: dict` | Persist progression. Desktop → `PATCH /api/game/progress`; browser → bridge `SI3LN_save_progress`. |
+| `get_progress()` | `dict \| None` | — | Read progression. Desktop → `GET /progress`; browser → reads `SI3LN_PROGRESS_CACHE`. |
+| `get_leaderboard_global(world, limit)` | `list` | `world: int \| None, limit: int` | Desktop → `GET /leaderboard/global`; browser → reads `SI3LN_LEADERBOARD_CACHE` (pre-fetched by the host page). |
+| `get_leaderboard_player(player_id)` | `dict \| None` | `player_id: int \| None` | `GET /leaderboard/player/{id}` — personal bests + recent runs. |
+| `_post/_get/_patch(endpoint, payload)` | `dict \| None` | `endpoint: str, payload: dict` | Internal: HTTP with Bearer JWT, 5s timeout (**desktop only** — no-op in WASM). |
+
+> **⚠️ Browser vs desktop:** In the Pygbag/WASM build, direct HTTP is impossible (sandbox). All API calls are **delegated to JavaScript bridges** on the host page (`web_dashboard/game/index.html`), which perform the real `fetch` with the JWT. See §5.5.
 
 #### 3.2.4 AuthSystem Class (`auth.py`)
 
@@ -485,8 +494,11 @@ The following tables document each class with its attributes, methods, types, an
 erDiagram
     User ||--|| Player : "has_profile"
     Player ||--o{ GameSession : "plays"
+    Player ||--o{ LeaderboardEntry : "submits"
+    Player ||--o{ ScoreSubmissionLog : "rate_limited_by"
     Player ||--o{ PlayerAchievement : "earns"
     GameSession }o--|| World : "played_in"
+    LeaderboardEntry }o--|| World : "scored_in"
     PlayerAchievement }o--|| Achievement : "references"
 
     User {
@@ -510,6 +522,7 @@ erDiagram
         string bio "NULLABLE"
         string bg_color "NULLABLE"
         boolean show_scores "DEFAULT TRUE"
+        json progression "unlocked_worlds[] + world_levels{} (JSONField)"
         datetime created_at "NOT NULL, DEFAULT NOW()"
     }
 
@@ -522,6 +535,34 @@ erDiagram
         boolean completed "DEFAULT FALSE"
         datetime started_at "NOT NULL, DEFAULT NOW()"
         datetime ended_at "NULLABLE"
+    }
+
+    LeaderboardEntry {
+        uuid id PK "NOT NULL, DEFAULT uuid4()"
+        int player_id FK "NOT NULL → Player.id"
+        string player_name "denormalized, indexed"
+        int score "DEFAULT 0, indexed"
+        int game_world_id "0=BootCamp … 5=Apocalyptic"
+        int level_id "DEFAULT 1"
+        string character_used ""
+        int duration_sec "DEFAULT 0"
+        decimal accuracy_pct "0–100"
+        int enemies_killed "DEFAULT 0"
+        string replay_hash "anti-cheat input hash"
+        boolean verified "DEFAULT FALSE"
+        boolean flagged "DEFAULT FALSE"
+        boolean is_pb "personal best"
+        datetime created_at "NOT NULL, DEFAULT NOW()"
+    }
+
+    ScoreSubmissionLog {
+        int id PK "NOT NULL, AUTO_INCREMENT"
+        int player_id FK "NOT NULL → Player.id"
+        string ip_hash "hashed IP for rate-limit"
+        int score "DEFAULT 0"
+        boolean accepted "DEFAULT TRUE"
+        string rejection_reason ""
+        datetime submitted_at "NOT NULL, DEFAULT NOW()"
     }
 
     World {
@@ -556,7 +597,12 @@ erDiagram
 - **Player → PlayerAchievement:** One-to-Many. A player may earn multiple achievements.
 - **GameSession → World:** Many-to-One. Each session is played in exactly one world.
 - **PlayerAchievement → Achievement:** Many-to-One. Each earned instance references one achievement definition.
-- **Guest Play:** `GameSession.player_id` is nullable, enabling anonymous gameplay without account creation.
+- **Player → LeaderboardEntry:** One-to-Many. **This is the real scoreboard.** Each completed run is one immutable entry (UUID PK) with full stats and anti-cheat fields (`replay_hash`, `verified`, `flagged`). The global leaderboard reads **verified entries only**.
+- **Player → ScoreSubmissionLog:** One-to-Many. Every submission attempt is logged (accepted or rejected) to enforce **rate limiting** (1 submission / 10 s).
+- **Player.progression (JSONField):** Stores `{unlocked_worlds: [...], world_levels: {...}}`, merged **monotonically** server-side (a level max never decreases).
+- **Guest Play:** `GameSession.player_id` is nullable; guests generate no `LeaderboardEntry` (no token → nothing submitted).
+
+> **⚠️ Two distinct score paths — do not confuse them:** `GameSession` tracks the *lifecycle* of a play session (start/end). `LeaderboardEntry` is the *authoritative score record* shown on the leaderboard and in the profile's best scores. Real scores are submitted via `POST /leaderboard/submit`, **not** via the session PATCH.
 
 ### 3.4 UML Class Diagram — Complete Game Client
 
@@ -647,7 +693,11 @@ classDiagram
         +set_token(token)
         +is_authenticated() bool
         +create_session(world_id) dict
-        +submit_score(session_id, score, level, completed) dict
+        +submit_leaderboard(score, world_id, level_id, replay_hash, ...) dict
+        +submit_progress(unlocked_worlds, world_levels) dict
+        +get_progress() dict
+        +get_leaderboard_global(world, limit) list
+        +get_leaderboard_player(player_id) dict
     }
 
     class ResolutionManager {
@@ -750,13 +800,13 @@ sequenceDiagram
     end
 
     GameClient->>GameClient: lives == 0
-    GameClient->>GameClient: end_game()
-    GameClient->>APIClient: submit_score(session_id, score, level, completed=true)
-    APIClient->>DjangoAPI: PATCH /api/game/sessions/{id}
-    DjangoAPI->>PostgreSQL: UPDATE GameSession SET score=..., ended_at=NOW()
-    DjangoAPI->>PostgreSQL: UPDATE Player SET total_score += score
-    PostgreSQL-->>DjangoAPI: COMMIT
-    DjangoAPI-->>APIClient: { updated_session }
+    GameClient->>GameClient: end_game() → build payload + replay_hash
+    GameClient->>APIClient: submit_leaderboard(score, world_id, level_id, replay_hash, ...)
+    APIClient->>DjangoAPI: POST /api/game/leaderboard/submit
+    DjangoAPI->>DjangoAPI: anti-cheat (rate limit + max-score + replay_hash)
+    DjangoAPI->>PostgreSQL: INSERT LeaderboardEntry (verified/flagged)
+    PostgreSQL-->>DjangoAPI: entry_id
+    DjangoAPI-->>APIClient: { success, is_pb, new_rank }
     APIClient-->>GameClient: score saved
     GameClient-->>Player: Display Game Over + Rank
 ```
@@ -800,35 +850,35 @@ sequenceDiagram
 
 **Key Interaction:** The dual-auth strategy (local JSON + server JWT) ensures the player can authenticate even when offline. Upon first successful server login, credentials are mirrored locally for subsequent offline sessions.
 
-### 4.3 Score Submission with Idempotency Guard
+### 4.3 Score Submission to the Leaderboard (with Anti-Cheat)
+
+This is the **real** score path: on a completed run, the game submits to the persistent leaderboard through `POST /api/game/leaderboard/submit`. In the browser build the request is relayed by a **JavaScript bridge** because WASM cannot make direct HTTP calls.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant GameClient as Game Client
-    participant ScoreManager as ScoreManager (Local)
-    participant APIClient as API Client
+    participant GameClient as Game Client (WASM)
+    participant Bridge as JS Bridge (game/index.html)
     participant DjangoAPI as Django API
     participant PostgreSQL as PostgreSQL
 
-    GameClient->>GameClient: end_game()
-    GameClient->>APIClient: submit_score(session_id, score, level, completed=true)
-    APIClient->>DjangoAPI: PATCH /api/game/sessions/{id}
-    Note over APIClient,DjangoAPI: Request body: { score, level_reached, completed: true }
-    DjangoAPI->>PostgreSQL: BEGIN TRANSACTION
-    DjangoAPI->>PostgreSQL: UPDATE GameSession SET score=..., ended_at=NOW() WHERE completed = FALSE
-    Note over DjangoAPI,PostgreSQL: Idempotency guard: WHERE completed = FALSE prevents double-counting
-    DjangoAPI->>PostgreSQL: UPDATE Player SET total_score += score, games_played += 1
-    PostgreSQL-->>DjangoAPI: COMMIT
-    DjangoAPI-->>APIClient: { updated_session }
-    APIClient-->>GameClient: score saved
-    GameClient->>ScoreManager: add_score() local
-    ScoreManager->>ScoreManager: insert, sort descending, keep top 20
-    ScoreManager->>ScoreManager: save to scores.json
-    ScoreManager-->>GameClient: rank returned
+    GameClient->>GameClient: end_game() → build payload + SHA-256 replay_hash
+    GameClient->>Bridge: platform.window.SI3LN_submit_score(json)
+    Bridge->>Bridge: read JWT from localStorage
+    Bridge->>DjangoAPI: POST /api/game/leaderboard/submit (Bearer JWT)
+    Note over Bridge,DjangoAPI: { score, world_id, level_id, replay_hash, enemies_killed, ... }
+
+    DjangoAPI->>DjangoAPI: 1. rate limit (1 / 10s per player+IP)
+    DjangoAPI->>DjangoAPI: 2. validate max possible score (server-side)
+    DjangoAPI->>DjangoAPI: 3. verify replay_hash (len ≥ 16)
+    DjangoAPI->>PostgreSQL: INSERT LeaderboardEntry (verified / flagged)
+    DjangoAPI->>PostgreSQL: INSERT ScoreSubmissionLog (accepted/rejected)
+    PostgreSQL-->>DjangoAPI: entry_id
+    DjangoAPI-->>Bridge: { success, entry_id, is_pb, new_rank, flagged }
+    Bridge->>Bridge: SI3LN_fetch_leaderboard() → refresh cache
 ```
 
-**Key Interaction:** The `completed = FALSE` guard in the SQL UPDATE ensures that even if the game client sends multiple PATCH requests (due to network retries or UI double-clicks), the player's score is only counted once in the global statistics.
+**Key Interaction:** Every submission is stored **immutably** as a new `LeaderboardEntry` and passes a 3-layer anti-cheat gate. If the `replay_hash` is missing/invalid the entry is written but **flagged & unverified**, so it never appears on the global leaderboard (which filters `verified = true`). Only authenticated runs are submitted — a guest has no token, so the bridge sends nothing.
 
 ### 4.4 Web Dashboard → Game Client Flow
 
@@ -837,35 +887,30 @@ sequenceDiagram
     autonumber
     participant Player as Player
     participant Dashboard as Web Dashboard (Vanilla JS)
-    participant GamesManager as GamesManager
-    participant APIFacade as APIFacade
+    participant Wrapper as game/index.html (JS bridges)
     participant GameClient as Pygbag Game (WASM)
-    participant APIClient as API Client
     participant DjangoAPI as Django API
 
     Player->>Dashboard: Click "Play Now"
-    Dashboard->>GamesManager: launch_game(world_id)
-    GamesManager->>APIFacade: create_session(world_id)
-    APIFacade->>DjangoAPI: POST /api/game/sessions (with JWT)
-    DjangoAPI-->>APIFacade: { session_id }
-    APIFacade-->>GamesManager: session_id
-    GamesManager->>GameClient: load iframe with session_id + token params
-    GameClient->>APIClient: read token from localStorage
-    GameClient->>GameClient: start_gameplay()
+    Dashboard->>Dashboard: JWT already in localStorage (SI3LN_SESSION)
+    Dashboard->>Wrapper: load iframe /game/ (same origin)
+    Wrapper->>Wrapper: read JWT from localStorage → window.SI3LN_JWT_TOKEN
+    Wrapper->>DjangoAPI: pre-fetch GET /leaderboard/global → SI3LN_LEADERBOARD_CACHE
+    Wrapper->>DjangoAPI: pre-fetch GET /progress → SI3LN_PROGRESS_CACHE
+    Wrapper->>GameClient: load /pygbag/ iframe (inherits localStorage)
+    GameClient->>GameClient: reads platform.window.SI3LN_JWT_TOKEN → is_authenticated
 
-    loop Gameplay Loop (local)
+    loop Gameplay Loop (local, 0 network)
         Player->>GameClient: Play level
     end
 
-    GameClient->>GameClient: game_over()
-    GameClient->>APIClient: submit_score(session_id, ...)
-    APIClient->>DjangoAPI: PATCH /api/game/sessions/{id}
-    DjangoAPI-->>APIClient: success
-    GameClient->>Dashboard: postMessage("score_submitted")
-    Dashboard->>Dashboard: refresh leaderboard
+    GameClient->>Wrapper: SI3LN_submit_score(json)
+    Wrapper->>DjangoAPI: POST /leaderboard/submit (Bearer JWT)
+    DjangoAPI-->>Wrapper: { success, new_rank }
+    Wrapper->>Wrapper: refresh SI3LN_LEADERBOARD_CACHE
 ```
 
-**Key Interaction:** The web dashboard initializes the game session before launching the Pygbag iframe, passing both `session_id` and JWT token via URL parameters or `localStorage`. This ensures the game client does not need to independently authenticate or create sessions, streamlining the web deployment flow.
+**Key Interaction:** The token is **never passed via URL params**. Because the dashboard, `/game/`, and `/pygbag/` are all served from the **same origin**, they transparently share `localStorage` (same-origin policy) — that is how the JWT reaches the WASM game (`platform.window.SI3LN_JWT_TOKEN`). The wrapper page `game/index.html` hosts all the **JS bridges** (`SI3LN_submit_score`, leaderboard/progress caches) that stand in for the HTTP layer the sandboxed WASM cannot use.
 
 ---
 
@@ -920,11 +965,22 @@ Content-Type: application/json
 
 | Method | Endpoint | Request Body | Response Body | HTTP Codes | Auth | Called When |
 |:---|:---|:---|:---|:---|:---|:---|
-| `POST` | `/api/game/sessions` | `{ "world_id": int \| null }` | `{ "id": int, "world_id": int, "started_at": datetime }` | 201, 400, 401 | Bearer | Gameplay starts |
-| `PATCH` | `/api/game/sessions/{id}` | `{ "score": int, "level_reached": int, "completed": bool }` | `{ "id": int, "score": int, "ended_at": datetime }` | 200, 400, 401, 404, 409 | Bearer | Game Over — score submit |
-| `GET` | `/api/game/leaderboard` | Query: `?world_id=&limit=` | `[{ "rank": int, "username": str, "score": int, "level": int }]` | 200 | Public | Leaderboard screen |
+| `POST` | `/api/game/sessions` | `{ "world_id": int \| null }` | `{ "id": int, "world_id": int, "started_at": datetime }` | 201, 400, 401 | Bearer | Gameplay starts (session *lifecycle* only) |
+| `PATCH` | `/api/game/sessions/{id}` | `{ "score": int, "level_reached": int, "completed": bool }` | `{ "id": int, "score": int, "ended_at": datetime }` | 200, 400, 401, 404 | Bearer | Marks a session ended (⚠️ **not** the leaderboard score path) |
 | `GET` | `/api/game/worlds` | — | `[{ "id": int, "name": str, "description": str }]` | 200 | Public | Level selector populates worlds |
 | `GET` | `/api/game/profile/me` | — | `{ "username": str, "total_score": int, "games_played": int, "highest_level": int }` | 200, 401 | Bearer | Profile screen stats |
+
+#### 5.2.3 Leaderboard v2 & Progression Endpoints *(the real scoreboard)*
+
+| Method | Endpoint | Request / Query | Response Body | Auth | Called When |
+|:---|:---|:---|:---|:---|:---|
+| `POST` | `/api/game/leaderboard/submit` | `{ score, world_id, level_id, character_used, duration_sec, accuracy_pct, enemies_killed, bullets_fired, replay_hash }` | `{ success, entry_id, is_pb, new_rank, flagged }` | Bearer | **On run completion — the actual score submission** |
+| `GET` | `/api/game/leaderboard/global` | `?world=&limit=` | `{ "entries": [{ player_name, score, world_id, level_id, verified, ... }] }` | Public | Leaderboard page / in-game (via cache) |
+| `GET` | `/api/game/leaderboard/player/{id}` | — | `{ personal_bests: [...], recent_runs: [...], best_score, total_runs }` | Public | Profile "best scores" |
+| `GET` | `/api/game/leaderboard/nearby` | `?player=&radius=` | `{ entries: [...] }` | Public | Rank context around a player |
+| `GET` | `/api/game/progress` | — | `{ unlocked_worlds: [str], world_levels: { "0": int, ... } }` | Bearer | Restore progression on boot |
+| `PATCH` | `/api/game/progress` | `{ unlocked_worlds: [str], world_levels: {} }` | merged progression | Bearer | After each level won (monotonic merge) |
+| `POST` | `/api/auth/refresh` | — (Bearer) | `{ token, username, player_id }` | Bearer | Token rotation (old token blacklisted) |
 
 **Example Request/Response — Create Session:**
 
@@ -950,18 +1006,24 @@ Content-Type: application/json
 }
 ```
 
-**Example Request/Response — Submit Score:**
+**Example Request/Response — Submit Score to Leaderboard:**
 
 ```http
-PATCH /api/game/sessions/157 HTTP/1.1
+POST /api/game/leaderboard/submit HTTP/1.1
 Host: api.arcad3x.example.com
 Content-Type: application/json
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 {
   "score": 12450,
-  "level_reached": 7,
-  "completed": true
+  "world_id": 1,
+  "level_id": 3,
+  "character_used": "Star Fighter",
+  "duration_sec": 62,
+  "accuracy_pct": 91.5,
+  "enemies_killed": 48,
+  "bullets_fired": 53,
+  "replay_hash": "415d736af2c488dab8e3de4adec68d15"
 }
 ```
 
@@ -970,50 +1032,81 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-  "id": 157,
-  "score": 12450,
-  "ended_at": "2025-05-27T14:38:42Z"
+  "success": true,
+  "entry_id": "347e7a9a-a38d-4691-ab06-f5cc33040b4c",
+  "is_pb": true,
+  "new_rank": 1,
+  "flagged": false,
+  "message": "Score submitted successfully."
 }
 ```
+
+> A submission with a missing/short `replay_hash` returns `"flagged": true` and the entry is **hidden** from the global leaderboard until verified.
 
 ### 5.3 JWT Token Specification
 
 | Attribute | Value | Justification |
 |:---|:---|:---|
 | **Algorithm** | HS256 (HMAC-SHA256) | Industry standard for signed JWTs; sufficient security for academic/MVP scope without public-key infrastructure complexity. |
-| **Secret** | `JWT_SECRET_KEY` + `JWT_PEPPER` (server-side) | Dual-secret approach: `SECRET_KEY` in environment, `PEPPER` hardcoded in source, mitigating secret leakage. |
-| **Access Token Expiry** | 24 hours (86,400 seconds) | Balances security (short-lived tokens) with usability (players not forced to re-login during a single day of play). |
-| **Payload Claims** | `{ "sub": user_id, "username": str, "player_id": int, "exp": timestamp, "iat": timestamp }` | Minimal claim set reduces token size; includes `player_id` to avoid extra database lookup on every request. |
-| **Header Format** | `Authorization: Bearer <token>` | RFC 6750 standard; universally supported by HTTP clients and middleware. |
-| **Client Storage** | `localStorage` (browser) / `SI3LN_TOKEN` env var (desktop) | Browser: web standard; Desktop: environment variable avoids file-system permission issues. |
+| **Secret** | `JWT_SECRET_KEY` (signature) + `JWT_PEPPER` (2nd secret) | **Dual-secret / secret separation.** The token is signed with `JWT_SECRET_KEY`; a `peppered_id = HMAC-SHA256(JWT_PEPPER, user_id)` claim is embedded and re-checked on every request. If the signing key leaks, an attacker still needs the pepper to forge a valid token. |
+| **Access Token Expiry** | 24 hours | Balances security (short-lived) with usability (no re-login during a play session). |
+| **Payload Claims** | `{ user_id, username, player_id, peppered_id, is_staff, is_superuser, iat, exp, jti, type: "access" }` | `player_id` avoids a DB lookup per request; `jti` (UUID) makes every token unique; `peppered_id` is the 2nd-secret check; `is_staff`/`is_superuser` are role hints for the frontend. |
+| **Revocation** | **Redis blacklist** (`bl:<token>`, TTL 48h) | JWT is *stateless* — to support **logout** and **token rotation** (refresh), the invalidated token is added to a Redis blacklist checked on every request. Shared across all Gunicorn workers; falls back to an in-memory set if Redis is down. |
+| **Header Format** | `Authorization: Bearer <token>` | RFC 6750 standard. |
+| **Client Storage** | `localStorage` (`SI3LN_SESSION`) in browser / env var (desktop) | Browser: shared with the game iframe via same-origin policy → `platform.window.SI3LN_JWT_TOKEN`. |
 
 ### 5.4 Game ↔ API Data Flow
 
 ```
-┌─────────────┐     POST {world_id}      ┌─────────────┐
-│   Game      │ ───────────────────────▶ │  Django API │
-│  Client     │                          │   /game/    │
-│             │ ◀───────────────────────  │  sessions   │
-│             │     { session_id }        └─────────────┘
-│             │                                   │
-│  GAMEPLAY   │                                   │ Django ORM
-│  (local)    │                                   ▼
-│             │                            ┌─────────────┐
-│             │     PATCH {score,           │  PostgreSQL │
-│             │            level_reached,   │  GameSession│
-│             │            completed}      │  + Player   │
-│             │ ───────────────────────▶  │  stats      │
-│             │                          └─────────────┘
-│             │ ◀───────────────────────
-│             │     { updated_session }
-└─────────────┘
+┌─────────────┐   POST /sessions {world_id}   ┌─────────────┐
+│   Game      │ ────────────────────────────▶ │  Django API │
+│  Client     │ ◀──────────────────────────── │   /game/    │
+│             │        { session_id }          └─────────────┘
+│  GAMEPLAY   │                                       │ ORM
+│  (local,    │                                       ▼
+│   0 net)    │   POST /leaderboard/submit      ┌─────────────┐
+│             │   {score, replay_hash, ...}     │  PostgreSQL │
+│             │ ────────────────────────────▶   │ Leaderboard │
+│             │      [anti-cheat gate]          │   Entry     │
+│             │ ◀──────────────────────────── │  (+ Log)    │
+│             │   {success, new_rank, flagged} └─────────────┘
+└─────────────┘   (browser: via SI3LN_submit_score JS bridge)
 ```
 
 **Flow Description:**
-1. **Session Initiation:** The game client POSTs to `/api/game/sessions` with an optional `world_id` when the player starts a level. The API returns a `session_id` that uniquely identifies this play session.
-2. **Local Gameplay:** All gameplay (movement, shooting, collision detection, scoring) occurs locally in the Pygame loop. No API calls are made during active gameplay to ensure zero latency.
-3. **Score Submission:** On game over or level completion, the client PATCHes the session record with the final score, level reached, and `completed` flag. The `completed = FALSE` guard in the database prevents duplicate score counting.
-4. **Leaderboard Refresh:** The client may subsequently GET `/api/game/leaderboard` to display updated rankings.
+1. **Session Initiation:** The client POSTs to `/api/game/sessions` with an optional `world_id` when a level starts — this records the session *lifecycle* only.
+2. **Local Gameplay:** All gameplay (movement, shooting, collisions, scoring) runs locally in the Pygame loop. **No API calls during active gameplay** → zero latency.
+3. **Score Submission:** On run completion, the client submits the final stats + `replay_hash` to **`POST /api/game/leaderboard/submit`** (in the browser, relayed by the `SI3LN_submit_score` JS bridge). The server runs anti-cheat (rate limit → max-score validation → replay-hash check) and inserts an immutable `LeaderboardEntry` (`verified` or `flagged`).
+4. **Progression:** After each level won, the client PATCHes `/api/game/progress`; the server **merges monotonically** (a level max never decreases).
+5. **Leaderboard Refresh:** The client re-reads `/api/game/leaderboard/global` (browser: from the pre-fetched `SI3LN_LEADERBOARD_CACHE`) to show updated rankings — global leaderboard returns **verified entries only**.
+
+### 5.5 Anti-Cheat & Score Integrity
+
+Because scores are submitted by a client the server does not control, `/leaderboard/submit` enforces a **defense-in-depth** gate before an entry becomes visible:
+
+| Layer | Mechanism | Effect |
+|:---|:---|:---|
+| 1. **Authentication** | JWT required (`auth=jwt_auth`) | Guests cannot submit — no token, no entry. |
+| 2. **Rate limiting** | 1 submission / 10 s per player + IP hash (`ScoreSubmissionLog`) | Blocks flooding / scripted spam. |
+| 3. **Server-side score cap** | `_validate_max_possible_score(score, enemies_killed, level_id, powerups, bullets)` | Rejects physically impossible scores (e.g. 9 999 999). |
+| 4. **Replay-hash check** | `replay_hash` must be present and ≥ 16 chars (SHA-256 of run stats) | Missing/invalid → entry stored but `verified=false, flagged=true`. |
+| 5. **Verified-only display** | `/leaderboard/global` filters `verified = true` | Flagged runs never appear on the public board. |
+
+> **Honest limitation (worth stating at defense):** the server does **not** yet fully re-simulate the run from inputs — it validates the hash is well-formed and flags suspicious runs for review. This is an MVP-level, extensible anti-cheat, not a cryptographic guarantee.
+
+### 5.6 Browser Bridge Architecture (WASM ↔ JS ↔ API)
+
+In the desktop build, `api_client.py` calls the API directly with `requests`. In the **browser build this is impossible** — the Pygbag/WASM runtime is sandboxed and has no socket access. The game therefore delegates every network operation to **JavaScript bridges** exposed on the host page (`web_dashboard/game/index.html`):
+
+| Direction | Python call | JS bridge | Backing endpoint |
+|:---|:---|:---|:---|
+| Submit score | `submit_leaderboard()` | `SI3LN_submit_score(json)` | `POST /leaderboard/submit` |
+| Read leaderboard | `get_leaderboard_global()` | reads `SI3LN_LEADERBOARD_CACHE` (pre-fetched) | `GET /leaderboard/global` |
+| Save progression | `submit_progress()` | `SI3LN_save_progress(json)` | `PATCH /progress` |
+| Read progression | `get_progress()` | reads `SI3LN_PROGRESS_CACHE` | `GET /progress` |
+
+- **Token:** shared via **same-origin `localStorage`** → `window.SI3LN_JWT_TOKEN` → `platform.window.SI3LN_JWT_TOKEN` (read by Python).
+- **Reads are cached:** the host page pre-fetches the leaderboard/progression into JS globals so the game can read them synchronously mid-loop, with no `await` and no latency. The leaderboard cache is refreshed after each submit.
 
 ---
 
@@ -1026,7 +1119,7 @@ Content-Type: application/json
 | Aspect | Strategy | Justification |
 |:---|:---|:---|
 | **Platform** | GitHub (`Schpser/SI3LN_Python`) | Academic standard; public visibility for portfolio; free CI/CD via GitHub Actions. |
-| **Repository Type** | Monorepo | Single source of truth. Contains `Game_Python/`, `API_SI3LN/`, `web_dashboard/`, and `docker-compose.yml`. Shared `assets_shared/` folder reduces duplication. |
+| **Repository Type** | Monorepo | Single source of truth. Contains `Game_Python/` (game), `api/` (Django/Ninja, project `si3ln_api`), `web_dashboard/` (JS SPA), `mobile/`, `Tests/`, and `Docker/docker-compose.yml` (db · redis · api · frontend). |
 | **Commit Convention** | Conventional Commits | `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:` prefixes enable automated changelog generation. |
 
 #### 6.1.2 Branching Strategy
@@ -1151,7 +1244,8 @@ A feature or fix is considered complete when **all** of the following criteria a
 | **Sprite Groups for Collision** | 15 enemies + 20 bullets + player + explosions simultaneously | US-M3 | NFR-Performance | Pygame's `pygame.sprite.Group` + `spritecollide()` / `groupcollide()` provide built-in collision detection with dirty-rect optimization. No custom spatial hash needed at this entity count. |
 | **Dual Auth (local + JWT)** | Players may have intermittent connectivity | US-M1, US-M2 | NFR-Reliability | `AuthSystem` handles local JSON; `APIClient` handles server JWT. Offline-first: player can always play. Server acts as source of truth for global leaderboard when online. |
 | **Environment-Driven API URL** | One codebase must connect to dev, staging, and production | US-M5 | Maintainability | `SI3LN_API_URL` and `SI3LN_TOKEN` environment variables enable one game binary to connect to `localhost:8000` (dev), staging, or production without recompilation. |
-| **Idempotency Guard in Database** | Network retries or UI double-clicks may cause duplicate submissions | US-M5 | NFR-Reliability | The SQL `WHERE completed = FALSE` clause ensures idempotent score submission without requiring client-side debounce logic. Simplifies client code and guarantees correctness. |
+| **Immutable Leaderboard Entries + Anti-Cheat** | Scores come from an untrusted client and must be tamper-resistant | US-M5 | NFR-Security | Each run is an **immutable `LeaderboardEntry`** (UUID PK) rather than a mutable counter. A server-side gate (rate limit → max-score validation → `replay_hash` → `verified/flagged`) decides visibility. Immutable history also enables personal-best and audit queries. |
+| **Two-Path Score Model** | Session lifecycle and the scoreboard are separate concerns | US-M4, US-M5 | Maintainability | `GameSession` records *when* a session ran; `LeaderboardEntry` records *the achieved score*. Decoupling keeps the leaderboard authoritative and independent of session bookkeeping. |
 
 ### 7.3 Constraints and Assumptions
 
@@ -1251,12 +1345,18 @@ services:
     ports:
       - "5432:5432"
 
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+
   api:
-    build: ./API_SI3LN
-    command: gunicorn API_SI3LN.wsgi:application --bind 0.0.0.0:8000
+    build: ./api
+    command: gunicorn si3ln_api.wsgi:application --bind 0.0.0.0:8000 --workers 4
     env_file: .env
     depends_on:
       - db
+      - redis
     ports:
       - "8000:8000"
 
@@ -1272,6 +1372,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
 ```
 
 **Hosting Comparison:**
@@ -1300,8 +1401,12 @@ ALLOWED_HOSTS=api.arcad3x.example.com,localhost
 
 # JWT
 JWT_SECRET_KEY=another-secret-key
+JWT_PEPPER=a-second-independent-secret   # 2nd secret for the peppered_id claim
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=1440
+
+# Redis (token blacklist / rate-limit)
+REDIS_URL=redis://redis:6379/0
 
 # CORS
 CORS_ALLOWED_ORIGINS=https://hugou74130.github.io,https://arcad3x.itch.io
