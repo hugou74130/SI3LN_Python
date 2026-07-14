@@ -64,11 +64,20 @@ the bullets you fired, that is impossible. We say no.
 So the leaderboard stays honest.
 
 ## Slide 7 — Docker Architecture · `4:15 – 4:45` (30s)
-This is how it works together. Nginx is the front door, on port 80.
-It sends `/dashboard` to the web app, `/api` to Django, and `/wasm` to the game.
-The dashboard asks the API for data, with a JWT token. Django talks to PostgreSQL for the data, and Redis for the tokens and the rate limit.
-In red: the four Docker services — Nginx, Django, PostgreSQL, and Redis.
-In grey: the dashboard and the game. They are static files. Nginx serves them.
+This is how it works together.
+Nginx is the front door, on port 80.
+It sends /dashboard to the web app, /api to Django,
+and /wasm to the game.
+
+The dashboard asks the API for data, with a JWT token.
+Django talks to PostgreSQL for the data,
+and to Redis for the tokens and the rate limit.
+
+In red: the four Docker containers —
+Nginx, Django, PostgreSQL, and Redis.
+In grey: the dashboard and the game.
+They are static files. Nginx serves them.
+
 Four containers. One command.
 
 ## Slide 8 — Process, Collaboration & Timeline · `4:45 – 5:35` (50s)
