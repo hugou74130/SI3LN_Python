@@ -46,15 +46,21 @@ One command: `docker compose up`. Then open localhost.
 ## Slide 6 — Core Algorithms & Code Snippets · `3:15 – 4:15` (60s)
 Now let me show you two pieces of real code.
 
-**On the left — secure login (`jwt_auth.py`).**
-We never store the password alone. We hash it with a secret key. We call this key the *pepper*. It lives on the server, never in the database.
-When you log in, we create a JWT token. Inside the token: your user id, a peppered id, a 24-hour timer, and a unique number for each token.
+Now let me show you two pieces of real code.
+
+On the left — secure login. We never store the password alone.
+We hash it with a secret key. We call this key the pepper.
+It lives on the server, never in the database.
+When you log in, we create a JWT token. Inside the token:
+your user id, a peppered id, a 24-hour timer, and a unique number.
 So a stolen token is useless after 24 hours.
 
-**On the right — anti-cheat (`api.py`).**
-A player could send a fake score to the API. So we check every score on the server.
-We calculate the maximum score that is possible: the enemies you killed, the level bonus, and the power-ups. If your score is higher than that maximum, we say no.
-We also check the accuracy. If you killed more enemies than the bullets you fired, that is impossible. We say no.
+On the right — anti-cheat. A player could send a fake score.
+So we check every score on the server.
+We calculate the maximum score that is possible.
+If your score is higher, we say no.
+We also check the accuracy. If you killed more enemies than
+the bullets you fired, that is impossible. We say no.
 So the leaderboard stays honest.
 
 ## Slide 7 — Docker Architecture · `4:15 – 4:45` (30s)
