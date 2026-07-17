@@ -85,7 +85,6 @@ We worked in six phases. Phase 1: a simple game with menu, lives, and collisions
 Phase 2: login and guest mode. Phase 3: the Django API with PostgreSQL and JWT.
 Phase 4: the dashboard with leaderboard and profiles. Phase 5: Docker, WASM, and tests.
 Phase 6: more features like shield, sound, and keybindings.
-Some numbers: **93 commits**, about **32 thousand lines of code**, **68 Python files**, **19 test suites**, **4 Docker services**, **8 characters**, and **30 levels in 6 worlds**.
 
 ## Slide 9 — Challenges Overcome · `5:35 – 6:35` (60s)
 We had five big challenges.
