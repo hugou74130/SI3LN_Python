@@ -4,8 +4,6 @@
 **School:** Holberton School France
 **Project repository:** https://github.com/hugou74130/SI3LN_Python
 
-> ⚠️ **À VÉRIFIER AVANT PUBLICATION** — les idées listées en section 2 doivent correspondre à ce que vous avez réellement envisagé avec Melissa. Remplace celles qui ne collent pas ; la structure et les critères peuvent rester tels quels.
-
 ---
 
 ## 1. Team Formation & Roles Definition
